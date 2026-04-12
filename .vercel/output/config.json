@@ -1,0 +1,108 @@
+{
+  "version": 3,
+  "overrides": {},
+  "routes": [
+    {
+      "headers": {
+        "cache-control": "public, max-age=31536000, immutable"
+      },
+      "src": "/_nuxt/builds/meta/(.*)"
+    },
+    {
+      "headers": {
+        "cache-control": "public, max-age=1, immutable"
+      },
+      "src": "/_nuxt/builds/(.*)"
+    },
+    {
+      "headers": {
+        "cache-control": "public, max-age=31536000, immutable"
+      },
+      "src": "/_nuxt/(.*)"
+    },
+    {
+      "src": "/_nuxt/builds/meta(.*)",
+      "headers": {
+        "cache-control": "public,max-age=31536000,immutable"
+      },
+      "continue": true
+    },
+    {
+      "src": "/_nuxt/builds(.*)",
+      "headers": {
+        "cache-control": "public,max-age=31536000,immutable"
+      },
+      "continue": true
+    },
+    {
+      "src": "/_nuxt(.*)",
+      "headers": {
+        "cache-control": "public,max-age=31536000,immutable"
+      },
+      "continue": true
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "(?<__isr_route>/__nuxt_error)",
+      "dest": "/__fallback"
+    },
+    {
+      "src": "/reportes",
+      "dest": "/reportes"
+    },
+    {
+      "src": "/medidores",
+      "dest": "/medidores"
+    },
+    {
+      "src": "/dashboard",
+      "dest": "/dashboard"
+    },
+    {
+      "src": "/calidad",
+      "dest": "/calidad"
+    },
+    {
+      "src": "/api/medidores",
+      "dest": "/api/medidores"
+    },
+    {
+      "src": "/api/dashboard",
+      "dest": "/api/dashboard"
+    },
+    {
+      "src": "/api/alumbrado",
+      "dest": "/api/alumbrado"
+    },
+    {
+      "src": "/alumbrado",
+      "dest": "/alumbrado"
+    },
+    {
+      "src": "/admin",
+      "dest": "/admin"
+    },
+    {
+      "src": "/__nuxt_error",
+      "dest": "/__nuxt_error"
+    },
+    {
+      "src": "/",
+      "dest": "/index"
+    },
+    {
+      "src": "/api/_nuxt_icon/(?<collection>[^/]+)",
+      "dest": "/api/_nuxt_icon/[collection]"
+    },
+    {
+      "src": "/__nuxt_island/(?:.*)",
+      "dest": "/__nuxt_island/[...]"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/__fallback"
+    }
+  ]
+}
