@@ -108,6 +108,11 @@ El repo ya incluye un workflow que despliega automáticamente cada `push` a `mai
 - `HOSTINGER_USER`
 - `HOSTINGER_PATH`
 - `HOSTINGER_SSH_KEY`
+- `HOSTINGER_DB_HOST`
+- `HOSTINGER_DB_PORT`
+- `HOSTINGER_DB_NAME`
+- `HOSTINGER_DB_USER`
+- `HOSTINGER_DB_PASS`
 
 ### Comportamiento del workflow
 
@@ -117,6 +122,7 @@ El repo ya incluye un workflow que despliega automáticamente cada `push` a `mai
 - sincroniza `public/api`
 - sincroniza `database`
 - sincroniza `scripts/import_seed_data.php`
+- escribe `api/config.php` en el servidor con las credenciales MySQL
 
 ### Llave SSH
 
