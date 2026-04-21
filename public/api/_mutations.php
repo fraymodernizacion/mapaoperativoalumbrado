@@ -108,11 +108,24 @@ function api_update_lighting_records(PDO $pdo, array $recordIds, array $fields):
     throw new InvalidArgumentException('Debes seleccionar al menos una luminaria editable.');
   }
 
-  $technology = trim((string) ($fields['technology'] ?? ''));
-  $encendido = trim((string) ($fields['encendido'] ?? ''));
-  $powerW = api_parse_number($fields['powerW'] ?? null);
-  if ($technology === '' || $encendido === '' || $powerW === null) {
-    throw new InvalidArgumentException('Completá tecnología, potencia y encendido antes de guardar.');
+  $hasTechnology = array_key_exists('technology', $fields);
+  $hasEncendido = array_key_exists('encendido', $fields);
+  $hasPowerW = array_key_exists('powerW', $fields);
+
+  $technology = $hasTechnology ? trim((string) ($fields['technology'] ?? '')) : null;
+  $encendido = $hasEncendido ? trim((string) ($fields['encendido'] ?? '')) : null;
+  $powerW = $hasPowerW ? api_parse_number($fields['powerW'] ?? null) : null;
+
+  if (
+    ($hasTechnology && $technology === '') &&
+    ($hasEncendido && $encendido === '') &&
+    ($hasPowerW && $powerW === null)
+  ) {
+    throw new InvalidArgumentException('Completá al menos un campo antes de guardar.');
+  }
+
+  if (($hasTechnology && $technology === '') || ($hasEncendido && $encendido === '') || ($hasPowerW && $powerW === null)) {
+    throw new InvalidArgumentException('Completá los campos que quieras actualizar antes de guardar.');
   }
 
   $timestamp = api_now_string();
@@ -139,17 +152,21 @@ function api_update_lighting_records(PDO $pdo, array $recordIds, array $fields):
       $currentPowerW = $row['power_w'] === null || $row['power_w'] === '' ? null : (string) (int) $row['power_w'];
       $currentEncendido = (string) ($row['encendido'] ?? '');
 
-      if ($currentTechnology !== $technology) {
+      if ($hasTechnology && $technology !== null && $currentTechnology !== $technology) {
         $changes[] = ['field' => 'technology', 'before' => $currentTechnology, 'after' => $technology];
       }
-      if ((string) ($currentPowerW ?? '') !== (string) (int) $powerW) {
+      if ($hasPowerW && $powerW !== null && (string) ($currentPowerW ?? '') !== (string) (int) $powerW) {
         $changes[] = ['field' => 'powerW', 'before' => $currentPowerW, 'after' => (string) (int) $powerW];
       }
-      if ($currentEncendido !== $encendido) {
+      if ($hasEncendido && $encendido !== null && $currentEncendido !== $encendido) {
         $changes[] = ['field' => 'encendido', 'before' => $currentEncendido, 'after' => $encendido];
       }
 
-      $updateStatement->execute([$technology, (int) $powerW, $encendido, $timestamp, $recordId]);
+      $nextTechnology = $hasTechnology && $technology !== null ? $technology : $currentTechnology;
+      $nextPowerW = $hasPowerW && $powerW !== null ? (int) $powerW : ($row['power_w'] === null || $row['power_w'] === '' ? null : (int) $row['power_w']);
+      $nextEncendido = $hasEncendido && $encendido !== null ? $encendido : $currentEncendido;
+
+      $updateStatement->execute([$nextTechnology, $nextPowerW, $nextEncendido, $timestamp, $recordId]);
 
       foreach ($changes as $change) {
         $historyStatement->execute([

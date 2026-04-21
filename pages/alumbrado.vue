@@ -462,15 +462,28 @@ async function saveSelectedPoint() {
   const technologyValue = editTechnology.value.trim();
   const encendidoValue = editEncendido.value.trim();
   const powerValue = editPowerW.value.trim();
+  const updates: { technology?: string; powerW?: number; encendido?: string } = {};
 
-  if (!technologyValue || !encendidoValue || !powerValue) {
-    savePointError.value = 'Completá tecnología, potencia y encendido antes de guardar.';
-    return;
+  if (technologyValue) {
+    updates.technology = technologyValue;
   }
 
-  const parsedPower = Number(powerValue);
-  if (!Number.isFinite(parsedPower)) {
-    savePointError.value = 'La potencia debe ser un número válido.';
+  if (encendidoValue) {
+    updates.encendido = encendidoValue;
+  }
+
+  if (powerValue) {
+    const parsedPower = Number(powerValue);
+    if (!Number.isFinite(parsedPower)) {
+      savePointError.value = 'La potencia debe ser un número válido.';
+      return;
+    }
+
+    updates.powerW = parsedPower;
+  }
+
+  if (!Object.keys(updates).length) {
+    savePointError.value = 'Elegí al menos un campo para cambiar.';
     return;
   }
 
@@ -492,9 +505,7 @@ async function saveSelectedPoint() {
       method: 'POST',
       body: {
         recordIds: selectedEditablePoints.value.map((record) => record.recordId),
-        technology: technologyValue,
-        powerW: parsedPower,
-        encendido: encendidoValue
+        ...updates
       }
     });
 
