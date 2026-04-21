@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import type { MeterRecord } from '~/types/municipal';
 
-const { data, pending, error, refresh } = await useAsyncData('meters-dataset', () => $fetch('/api/medidores'), { server: false });
+const { data, pending, error, refresh } = await useAsyncData('meters-dataset', () => $fetch('/api/medidores/'), { server: false });
 
 const search = ref('');
 const consumptionType = ref('');
@@ -213,4 +213,3 @@ useHead({ title: 'Medidores | Municipalidad FME' });
     </div>
   </div>
 </template>
-

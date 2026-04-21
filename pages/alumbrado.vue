@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import type { LightingRecord } from '~/types/municipal';
 
-const { data, pending, error, refresh } = await useAsyncData('alumbrado-dataset', () => $fetch('/api/alumbrado'), { server: false });
+const { data, pending, error, refresh } = await useAsyncData('alumbrado-dataset', () => $fetch('/api/alumbrado/'), { server: false });
 const mapCaptureRef = ref<HTMLElement | null>(null);
 const isExporting = ref(false);
 const isColorLegendOpen = ref(true);
@@ -501,7 +501,7 @@ async function saveSelectedPoint() {
       ok: boolean;
       recordIds: string[];
       records: Array<{ recordId: string; record: LightingRecord }>;
-    }>('/api/alumbrado/bulk-update', {
+    }>('/api/alumbrado/bulk-update/', {
       method: 'POST',
       body: {
         recordIds: selectedEditablePoints.value.map((record) => record.recordId),
@@ -574,7 +574,7 @@ async function saveNewPoint() {
       ok: boolean;
       recordIds: string[];
       records: LightingRecord[];
-    }>('/api/alumbrado/create', {
+    }>('/api/alumbrado/create/', {
       method: 'POST',
       body: {
         locations: draftLocations.value,
