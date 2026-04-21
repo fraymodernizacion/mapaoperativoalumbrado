@@ -11,7 +11,36 @@ const encendido = ref('');
 const powerValue = ref('');
 const sectorSearch = ref('');
 const selectedSector = ref('');
-const selectedPoint = ref<LightingRecord | null>(null);
+const mapLayer = ref<'street' | 'satellite'>('street');
+const selectedPointIds = ref<string[]>([]);
+const selectedPointId = ref<string | null>(null);
+const isFloatingFormOpen = ref(true);
+const isCreateMode = ref(false);
+const isMapFullscreen = ref(false);
+const isMapFiltersOpen = ref(true);
+const editTechnology = ref('');
+const editPowerW = ref<string>('');
+const editEncendido = ref('');
+const isSavingPoint = ref(false);
+const savePointError = ref('');
+const savePointMessage = ref('');
+const newPointName = ref('');
+const newPointTechnology = ref('');
+const newPointPowerW = ref('');
+const newPointEncendido = ref('');
+const newPointLocality = ref('');
+const newPointLocalityMode = ref('suggested');
+const newPointAddress = ref('');
+const newPointAddressMode = ref('suggested');
+const newPointSupply = ref('');
+const newPointObservations = ref('');
+const newPointQuantity = ref('1');
+const isSavingNewPoint = ref(false);
+const createPointError = ref('');
+const createPointMessage = ref('');
+const draftLocation = ref<{ lat: number; lng: number } | null>(null);
+const draftLocations = ref<Array<{ lat: number; lng: number }>>([]);
+const isDownloadingExcel = ref(false);
 
 const normalizeText = (value: unknown) =>
   String(value ?? '')
@@ -26,7 +55,106 @@ const metrics = computed(() => data.value?.metrics);
 const options = computed(() => data.value?.options);
 const sectors = computed(() => data.value?.sectors ?? []);
 const localities = computed(() => data.value?.localities ?? []);
+const selectedPoints = computed(() =>
+  selectedPointIds.value
+    .map((recordId) => allRecords.value.find((record) => record.recordId === recordId))
+    .filter((record): record is LightingRecord => Boolean(record))
+);
+const selectedPoint = computed(() => {
+  if (selectedPointId.value) {
+    return allRecords.value.find((record) => record.recordId === selectedPointId.value) ?? null;
+  }
+
+  return selectedPoints.value[0] ?? null;
+});
+const selectedEditablePoints = computed(() => selectedPoints.value.filter((record) => record.isLuminaire));
+const selectedPointCount = computed(() => selectedPoints.value.length);
+const selectedEditableCount = computed(() => selectedEditablePoints.value.length);
+const nextManualPointCode = computed(() => {
+  const manualPointValues = allRecords.value
+    .map((record) => String(record.point).trim().toUpperCase())
+    .map((point) => {
+      const match = point.match(/^M-(\d{4,})$/);
+      return match ? Number(match[1]) : Number.NaN;
+    })
+    .filter((value) => Number.isInteger(value) && value > 0);
+
+  const nextValue = manualPointValues.length ? Math.max(...manualPointValues) + 1 : 1;
+  return `M-${String(nextValue).padStart(4, '0')}`;
+});
+const nearbyLocalitySuggestions = computed(() => {
+  if (!draftLocation.value) return [];
+
+  const grouped = new Map<string, { locality: string; count: number; minDistanceKm: number }>();
+  const origin = draftLocation.value;
+
+  for (const record of allRecords.value) {
+    if (!record.locality || record.lat === null || record.lng === null) continue;
+
+    const distanceKm = haversineDistanceKm(origin.lat, origin.lng, record.lat, record.lng);
+    if (distanceKm > 0.8) continue;
+
+    const current = grouped.get(record.locality) ?? {
+      locality: record.locality,
+      count: 0,
+      minDistanceKm: Number.POSITIVE_INFINITY
+    };
+
+    current.count += 1;
+    current.minDistanceKm = Math.min(current.minDistanceKm, distanceKm);
+    grouped.set(record.locality, current);
+  }
+
+  return Array.from(grouped.values()).sort((left, right) => {
+    if (right.count !== left.count) return right.count - left.count;
+    return left.minDistanceKm - right.minDistanceKm;
+  });
+});
+const newPointLocalityOptions = computed(() => {
+  const suggested = nearbyLocalitySuggestions.value.map((item) => item.locality);
+  const remaining = localities.value.map((item) => item.name).filter((name) => !suggested.includes(name));
+  return [...suggested, ...remaining];
+});
+const nearbyAddressSuggestions = computed(() => {
+  if (!draftLocation.value) return [];
+
+  const grouped = new Map<string, { label: string; count: number; minDistanceKm: number }>();
+  const origin = draftLocation.value;
+
+  for (const record of allRecords.value) {
+    const candidates = [record.address, record.sectorLabel]
+      .map((value) => String(value ?? '').trim())
+      .filter((value) => value && normalizeText(value) !== 'SIN DIRECCION');
+
+    if (!candidates.length || record.lat === null || record.lng === null) continue;
+
+    const distanceKm = haversineDistanceKm(origin.lat, origin.lng, record.lat, record.lng);
+    if (distanceKm > 0.8) continue;
+
+    for (const label of candidates) {
+      const current = grouped.get(label) ?? {
+        label,
+        count: 0,
+        minDistanceKm: Number.POSITIVE_INFINITY
+      };
+
+      current.count += 1;
+      current.minDistanceKm = Math.min(current.minDistanceKm, distanceKm);
+      grouped.set(label, current);
+    }
+  }
+
+  return Array.from(grouped.values()).sort((left, right) => {
+    if (right.count !== left.count) return right.count - left.count;
+    return left.minDistanceKm - right.minDistanceKm;
+  });
+});
+const newPointAddressOptions = computed(() => nearbyAddressSuggestions.value.map((item) => item.label));
+const mapFitBoundsKey = computed(
+  () => `${locality.value}|${technology.value}|${encendido.value}|${powerValue.value}|${selectedSector.value}|${sectorSearch.value}`
+);
 const printTimestamp = new Date().toLocaleString('es-AR');
+let fullscreenChangeHandler: (() => void) | null = null;
 
 const filteredRecords = computed(() => {
   const normalizedSector = normalizeText(selectedSector.value);
@@ -71,6 +199,13 @@ const reportFilters = computed(() => [
   { label: 'Potencia', value: powerValue.value ? `${powerValue.value} W` : 'Todas' },
   { label: 'Sector', value: selectedSector.value || 'Todos' }
 ]);
+const powerLegend = [
+  { value: 40, color: '#0f4c81' },
+  { value: 50, color: '#6d28d9' },
+  { value: 100, color: '#0f766e' },
+  { value: 150, color: '#b45309' },
+  { value: 200, color: '#be123c' }
+];
 
 function googleMapsUrl(record: LightingRecord) {
   if (record.lat !== null && record.lng !== null) {
@@ -96,12 +231,352 @@ function clearFilters() {
   powerValue.value = '';
   sectorSearch.value = '';
   selectedSector.value = '';
-  selectedPoint.value = null;
+  selectedPointIds.value = [];
+  selectedPointId.value = null;
+}
+
+function haversineDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * earthRadiusKm * Math.asin(Math.sqrt(a));
+}
+
+function applyNearbyLocalitySuggestion(localityName: string) {
+  newPointLocality.value = localityName;
+  newPointLocalityMode.value = 'suggested';
+}
+
+function applyNearbyAddressSuggestion(addressLabel: string) {
+  newPointAddress.value = addressLabel;
+  newPointAddressMode.value = 'suggested';
+}
+
+function addDraftLocation(location: { lat: number; lng: number }) {
+  draftLocation.value = location;
+  draftLocations.value = [...draftLocations.value, location];
+}
+
+function removeDraftLocation(index: number) {
+  draftLocations.value = draftLocations.value.filter((_, currentIndex) => currentIndex !== index);
+  draftLocation.value = draftLocations.value.at(-1) ?? null;
+}
+
+function clearDraftLocations() {
+  draftLocations.value = [];
+  draftLocation.value = null;
+}
+
+function removeLastDraftLocation() {
+  draftLocations.value = draftLocations.value.slice(0, -1);
+  draftLocation.value = draftLocations.value.at(-1) ?? null;
 }
 
 function applySector(label: string) {
   selectedSector.value = label;
   sectorSearch.value = label;
+}
+
+function clearSelection() {
+  selectedPointIds.value = [];
+  selectedPointId.value = null;
+}
+
+function resetNewPointForm() {
+  newPointName.value = nextManualPointCode.value;
+  newPointTechnology.value = '';
+  newPointPowerW.value = '';
+  newPointEncendido.value = '';
+  newPointLocality.value = '';
+  newPointLocalityMode.value = nearbyLocalitySuggestions.value.length ? 'suggested' : 'manual';
+  newPointAddress.value = '';
+  newPointAddressMode.value = nearbyAddressSuggestions.value.length ? 'suggested' : 'manual';
+  newPointSupply.value = '';
+  newPointObservations.value = '';
+  newPointQuantity.value = '1';
+  createPointError.value = '';
+  createPointMessage.value = '';
+}
+
+function startCreateMode() {
+  isCreateMode.value = true;
+  draftLocation.value = null;
+  draftLocations.value = [];
+  resetNewPointForm();
+}
+
+function stopCreateMode() {
+  isCreateMode.value = false;
+  draftLocation.value = null;
+  draftLocations.value = [];
+  resetNewPointForm();
+}
+
+watch(
+  nearbyLocalitySuggestions,
+  (suggestions) => {
+    if (!isCreateMode.value) return;
+    if (newPointLocalityMode.value === 'manual' && newPointLocality.value) return;
+    const firstSuggestion = suggestions[0]?.locality;
+    if (firstSuggestion) {
+      newPointLocality.value = firstSuggestion;
+      newPointLocalityMode.value = 'suggested';
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  nearbyAddressSuggestions,
+  (suggestions) => {
+    if (!isCreateMode.value) return;
+    if (newPointAddressMode.value === 'manual' && newPointAddress.value) return;
+    const firstSuggestion = suggestions[0]?.label;
+    if (firstSuggestion) {
+      newPointAddress.value = firstSuggestion;
+      newPointAddressMode.value = 'suggested';
+    }
+  },
+  { immediate: true }
+);
+
+const draftPointCount = computed(() => draftLocations.value.length);
+
+async function toggleMapFullscreen() {
+  if (!import.meta.client || !mapCaptureRef.value) return;
+
+  const element = mapCaptureRef.value;
+  if (document.fullscreenElement) {
+    await document.exitFullscreen();
+    return;
+  }
+
+  await element.requestFullscreen?.();
+}
+
+function togglePointSelection(point: LightingRecord, additive: boolean) {
+  const currentIndex = selectedPointIds.value.indexOf(point.recordId);
+  if (!additive) {
+    selectedPointIds.value = [point.recordId];
+    selectedPointId.value = point.recordId;
+    return;
+  }
+
+  if (currentIndex >= 0) {
+    const nextSelection = selectedPointIds.value.filter((recordId) => recordId !== point.recordId);
+    selectedPointIds.value = nextSelection;
+    selectedPointId.value = nextSelection[0] ?? null;
+    return;
+  }
+
+  selectedPointIds.value = [...selectedPointIds.value, point.recordId];
+  selectedPointId.value = point.recordId;
+}
+
+function sameValueOrBlank(records: LightingRecord[], extractor: (record: LightingRecord) => string | number | null) {
+  if (!records.length) return '';
+  const [first, ...rest] = records.map(extractor);
+  return rest.every((value) => value === first) ? String(first ?? '') : '';
+}
+
+function formatEditValue(value: string | number | null) {
+  if (value === null || value === undefined || value === '') return 'Sin dato';
+  return String(value);
+}
+
+function formatPowerDisplay(value: string | number | null) {
+  return value === null || value === undefined || value === '' ? 'Sin dato' : `${value} W`;
+}
+
+function formatHistoryTimestamp(timestamp: string) {
+  return new Date(timestamp).toLocaleString('es-AR');
+}
+
+function resetSelectedPointForm(points: LightingRecord[]) {
+  savePointError.value = '';
+  savePointMessage.value = '';
+
+  if (!points.length) {
+    editTechnology.value = '';
+    editPowerW.value = '';
+    editEncendido.value = '';
+    return;
+  }
+
+  editTechnology.value = sameValueOrBlank(points, (record) => record.technology);
+  editPowerW.value = sameValueOrBlank(points, (record) => record.powerW);
+  editEncendido.value = sameValueOrBlank(points, (record) => record.encendido);
+}
+
+watch(
+  selectedPoints,
+  (points) => {
+    resetSelectedPointForm(points);
+    if (points.length) {
+      isFloatingFormOpen.value = true;
+    }
+  },
+  { immediate: true }
+);
+
+onMounted(() => {
+  if (!import.meta.client) return;
+  fullscreenChangeHandler = () => {
+    isMapFullscreen.value = Boolean(document.fullscreenElement);
+    window.dispatchEvent(new Event('resize'));
+  };
+
+  document.addEventListener('fullscreenchange', fullscreenChangeHandler);
+});
+
+onBeforeUnmount(() => {
+  if (fullscreenChangeHandler) {
+    document.removeEventListener('fullscreenchange', fullscreenChangeHandler);
+    fullscreenChangeHandler = null;
+  }
+});
+
+async function saveSelectedPoint() {
+  if (!selectedPoints.value.length || isSavingPoint.value) return;
+
+  const technologyValue = editTechnology.value.trim();
+  const encendidoValue = editEncendido.value.trim();
+  const powerValue = editPowerW.value.trim();
+
+  if (!technologyValue || !encendidoValue || !powerValue) {
+    savePointError.value = 'Completá tecnología, potencia y encendido antes de guardar.';
+    return;
+  }
+
+  const parsedPower = Number(powerValue);
+  if (!Number.isFinite(parsedPower)) {
+    savePointError.value = 'La potencia debe ser un número válido.';
+    return;
+  }
+
+  if (!selectedEditablePoints.value.length) {
+    savePointError.value = 'Seleccioná al menos una luminaria editable.';
+    return;
+  }
+
+  isSavingPoint.value = true;
+  savePointError.value = '';
+  savePointMessage.value = '';
+
+  try {
+    const response = await $fetch<{
+      ok: boolean;
+      recordIds: string[];
+      records: Array<{ recordId: string; record: LightingRecord }>;
+    }>('/api/alumbrado/bulk-update', {
+      method: 'POST',
+      body: {
+        recordIds: selectedEditablePoints.value.map((record) => record.recordId),
+        technology: technologyValue,
+        powerW: parsedPower,
+        encendido: encendidoValue
+      }
+    });
+
+    if (data.value) {
+      const updatedById = new Map(response.records.map((entry) => [entry.recordId, entry.record]));
+      data.value = {
+        ...data.value,
+        records: allRecords.value.map((record) => {
+          const updatedRecord = updatedById.get(record.recordId);
+          return updatedRecord ? { ...record, ...updatedRecord } : record;
+        })
+      };
+    }
+
+    await refresh();
+    savePointMessage.value =
+      selectedEditablePoints.value.length === 1
+        ? 'El cambio se guardó y quedó registrado con fecha y hora.'
+        : `Los cambios se guardaron para ${selectedEditablePoints.value.length} luminarias.`;
+  } catch (error) {
+    savePointError.value = error instanceof Error ? error.message : 'No se pudieron guardar los cambios.';
+  } finally {
+    isSavingPoint.value = false;
+  }
+}
+
+async function saveNewPoint() {
+  if (isSavingNewPoint.value) return;
+
+  const pointValue = newPointName.value.trim();
+  const technologyValue = newPointTechnology.value.trim();
+  const encendidoValue = newPointEncendido.value.trim();
+  const powerValue = newPointPowerW.value.trim();
+  const quantityValue = newPointQuantity.value.trim();
+
+  if (!draftLocations.value.length) {
+    createPointError.value = 'Hacé click en el mapa para marcar al menos un punto antes de guardar.';
+    return;
+  }
+
+  const resolvedPointCode = pointValue || nextManualPointCode.value;
+
+  if (!technologyValue || !encendidoValue || !powerValue) {
+    createPointError.value = 'Completá tecnología, potencia y encendido antes de guardar.';
+    return;
+  }
+
+  const parsedPower = Number(powerValue);
+  const parsedQuantity = quantityValue ? Number(quantityValue) : 1;
+  if (!Number.isFinite(parsedPower)) {
+    createPointError.value = 'La potencia debe ser un número válido.';
+    return;
+  }
+
+  if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
+    createPointError.value = 'La cantidad debe ser un número válido mayor a cero.';
+    return;
+  }
+
+  isSavingNewPoint.value = true;
+  createPointError.value = '';
+  createPointMessage.value = '';
+
+  try {
+    const response = await $fetch<{
+      ok: boolean;
+      recordIds: string[];
+      records: LightingRecord[];
+    }>('/api/alumbrado/create', {
+      method: 'POST',
+      body: {
+        locations: draftLocations.value,
+        point: resolvedPointCode,
+        technology: technologyValue,
+        powerW: parsedPower,
+        encendido: encendidoValue,
+        locality: newPointLocality.value.trim(),
+        address: newPointAddress.value.trim(),
+        supply: newPointSupply.value.trim(),
+        observations: newPointObservations.value.trim(),
+        quantity: parsedQuantity
+      }
+    });
+
+    await refresh();
+    selectedPointIds.value = response.recordIds;
+    selectedPointId.value = response.recordIds[0] ?? null;
+    clearDraftLocations();
+    resetNewPointForm();
+    createPointMessage.value =
+      response.recordIds.length === 1
+        ? 'El nuevo punto quedó guardado con su ubicación.'
+        : `Se crearon ${response.recordIds.length} puntos con la misma configuración.`;
+  } catch (error) {
+    createPointError.value = error instanceof Error ? error.message : 'No se pudo crear el punto.';
+  } finally {
+    isSavingNewPoint.value = false;
+  }
 }
 
 async function exportPdf() {
@@ -353,6 +828,30 @@ async function exportPdf() {
   }
 }
 
+async function exportExcel() {
+  if (!import.meta.client || isDownloadingExcel.value) return;
+  isDownloadingExcel.value = true;
+
+  try {
+    const response = await fetch('/api/alumbrado/export-excel');
+    if (!response.ok) {
+      throw new Error('No se pudo generar el archivo Excel.');
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'alumbrado_actualizado.xlsx';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } finally {
+    isDownloadingExcel.value = false;
+  }
+}
+
 useHead({
   title: 'Alumbrado público | Municipalidad FME'
 });
@@ -374,6 +873,9 @@ useHead({
           <UButton color="primary" class="px-5" :loading="isExporting" :disabled="isExporting" @click="exportPdf">
             Descargar PDF
           </UButton>
+          <UButton color="gray" variant="solid" class="px-5" :loading="isDownloadingExcel" :disabled="isDownloadingExcel" @click="exportExcel">
+            Descargar Excel
+          </UButton>
           <UButton variant="outline" color="gray" class="px-5" @click="refresh">
             Actualizar datos
           </UButton>
@@ -382,33 +884,6 @@ useHead({
 
       <div class="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
         <aside class="space-y-4 xl:sticky xl:top-24 xl:h-fit">
-          <UCard class="glass">
-            <template #header>
-              <p class="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Cobertura</p>
-            </template>
-
-            <div class="grid gap-3">
-              <div
-                v-for="item in [
-                  { label: 'Puntos visibles', value: visibleCounts.points },
-                  { label: 'Luminarias visibles', value: visibleCounts.luminaries },
-                  { label: 'LED por puntos', value: `${visibleCounts.ledPoints}%` },
-                  { label: 'Potencia total', value: `${metrics?.totalPowerW?.toLocaleString('es-AR') ?? 0} W` },
-                  { label: 'Potencia LED', value: `${metrics?.ledPowerW?.toLocaleString('es-AR') ?? 0} W` }
-                ]"
-                :key="item.label"
-                class="rounded-3xl border border-slate-200/80 bg-white px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]"
-              >
-                <p class="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
-                  {{ item.label }}
-                </p>
-                <p class="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-                  {{ item.value }}
-                </p>
-              </div>
-            </div>
-          </UCard>
-
           <UCard class="glass">
             <template #header>
               <div class="flex items-center justify-between">
@@ -468,148 +943,332 @@ useHead({
         </aside>
 
         <main class="space-y-5">
-          <UCard class="glass">
-            <template #header>
-              <div class="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p class="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">Filtros operativos</p>
-          <p class="text-sm text-slate-500">Filtrá arriba y trabajá sobre el corte exacto.</p>
-                </div>
-                <UButton variant="ghost" color="gray" @click="clearFilters">
-                  Limpiar filtros
-                </UButton>
-              </div>
-            </template>
-
-            <div class="grid gap-3 xl:grid-cols-4">
-              <select v-model="locality" class="fme-select">
-                <option value="">Todas las localidades</option>
-                <option v-for="item in localities" :key="item.name" :value="item.name">{{ item.name }}</option>
-              </select>
-              <select v-model="technology" class="fme-select">
-                <option value="">Todas las tecnologías</option>
-                <option v-for="item in options?.technologies ?? []" :key="item" :value="item">{{ item }}</option>
-              </select>
-              <select v-model="encendido" class="fme-select">
-                <option value="">Todos los encendidos</option>
-                <option v-for="item in options?.encendidos ?? []" :key="item" :value="item">{{ item }}</option>
-              </select>
-              <select v-model="powerValue" class="fme-select">
-                <option value="">Todas las potencias</option>
-                <option v-for="item in options?.powerValues ?? []" :key="item" :value="item">{{ item }} W</option>
-              </select>
-            </div>
-
-            <div class="mt-4 flex items-center justify-between gap-3 text-xs text-slate-500">
-              <span>
-                {{ filteredRecords.length.toLocaleString('es-AR') }} puntos filtrados de
-                {{ allRecords.length.toLocaleString('es-AR') }} totales
-              </span>
-              <span>Sector activo: {{ selectedSector || 'sin selección' }}</span>
-            </div>
-
-            <div class="mt-4 grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-              <div class="rounded-[24px] border border-slate-200 bg-white p-4">
-                <div class="flex items-center justify-between gap-3">
-                  <div>
-                    <p class="text-sm font-semibold text-slate-900">Buscador de domicilios / sectores</p>
-                    <p class="text-xs text-slate-500">Se agrupan variantes del mismo texto.</p>
-                  </div>
-                  <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                    {{ sectors.length }} sectores
-                  </span>
-                </div>
-                <UInput v-model="sectorSearch" class="mt-3" placeholder="Ej: B° Hipolito Irigoyen, San Cayetano..." />
-
-                <div class="mt-3 max-h-[22rem] space-y-2 overflow-auto pr-1">
-                  <button
-                    v-for="sector in filteredSectors"
-                    :key="sector.key"
-                    type="button"
-                    class="fme-sector-item"
-                    :class="selectedSector === sector.label ? 'fme-sector-item-active' : ''"
-                    @click="applySector(sector.label)"
-                  >
-                    <div class="min-w-0 text-left">
-                      <p class="truncate text-sm font-medium text-slate-900">{{ sector.displayLabel ?? sector.label }}</p>
-                      <p class="text-xs text-slate-500">{{ sector.count }} puntos georreferenciados</p>
-                    </div>
-                    <div class="flex items-center gap-3 text-sm font-semibold">
-                      <span class="text-slate-500">{{ sector.ledPercentage }}% LED</span>
-                      <span class="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">{{ sector.count }}</span>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              <div class="rounded-[24px] border border-slate-200 bg-white p-4">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <p class="text-sm font-semibold text-slate-900">Sectores más presentes</p>
-                    <p class="text-xs text-slate-500">Top por cantidad de puntos</p>
-                  </div>
-                  <span class="text-xs text-slate-500">Mapa + informe</span>
-                </div>
-                <div class="mt-3 grid gap-2">
-                  <div
-                    v-for="sector in sectors.slice(0, 6)"
-                    :key="sector.key"
-                    class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
-                  >
-                    <div class="flex items-start justify-between gap-3">
-                      <button type="button" class="min-w-0 text-left" @click="applySector(sector.label)">
-                        <p class="truncate text-sm font-semibold text-slate-900">{{ sector.displayLabel ?? sector.label }}</p>
-                        <p class="text-xs text-slate-500">{{ sector.count }} puntos · {{ sector.ledPercentage }}% LED</p>
-                      </button>
-                      <span class="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
-                        {{ sector.count }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                  {{
-                    selectedPoint
-                      ? `Punto seleccionado: ${selectedPoint.point} · ${selectedPoint.address || 'Sin dirección'} · ${selectedPoint.technology}`
-                      : 'Hacé clic sobre un punto del mapa para ver el detalle operativo.'
-                  }}
-                </div>
-                <div v-if="selectedPoint" class="mt-3 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm">
-                  <div class="min-w-0">
-                    <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">GPS</p>
-                    <p class="text-slate-700">{{ gpsLabel(selectedPoint) }}</p>
-                  </div>
-                  <a
-                    :href="googleMapsUrl(selectedPoint)"
-                    target="_blank"
-                    rel="noreferrer"
-                    class="ml-auto rounded-full bg-sky-50 px-3 py-1.5 font-semibold text-sky-700 transition hover:bg-sky-100"
-                  >
-                    Abrir en Google Maps
-                  </a>
-                </div>
-              </div>
-            </div>
-          </UCard>
-
-          <section ref="mapCaptureRef" class="relative overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.10)]">
+          <section
+            class="relative isolate overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.10)]"
+            :class="isMapFullscreen ? 'fixed inset-0 z-[6000] rounded-none' : ''"
+          >
+            <div ref="mapCaptureRef" class="relative h-full min-h-0">
             <div class="absolute left-4 top-4 z-10 rounded-full bg-white/92 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.25em] text-slate-500 shadow-sm">
               Puntos georreferenciados
             </div>
-            <div class="absolute right-4 top-4 z-10 rounded-2xl bg-white/92 px-3 py-2 text-xs text-slate-600 shadow-sm">
+            <div class="absolute left-4 top-16 z-[5000] rounded-2xl bg-white/92 px-3 py-2 text-[11px] text-slate-600 shadow-sm">
+              {{ selectedPointCount }} seleccionadas
+            </div>
+            <div class="pointer-events-none absolute left-4 top-28 z-[5200] flex w-[min(20rem,calc(100vw-2rem))] flex-col gap-3">
+              <div
+                class="pointer-events-auto rounded-[22px] border border-slate-200 bg-white p-3 text-slate-900 shadow-[0_20px_60px_rgba(15,23,42,0.12)]"
+              >
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <p class="text-[9px] font-semibold uppercase tracking-[0.28em] text-slate-500">Referencias de color</p>
+                    <h3 class="truncate text-sm font-semibold text-slate-950">Tecnologías y potencias</h3>
+                    <p class="mt-0.5 text-[10px] text-slate-500">
+                      Las capas usan estos colores para identificar cada punto.
+                    </p>
+                  </div>
+                </div>
+
+                <div class="mt-3 grid gap-3">
+                  <div>
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Tecnologías</p>
+                    <div class="mt-2 space-y-1.5 text-sm text-slate-700">
+                      <div class="flex items-center gap-2">
+                        <span class="h-3 w-3 rounded-full bg-[#0f4c81] ring-1 ring-slate-200" />
+                        LED
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <span class="h-3 w-3 rounded-full bg-[#d9480f] ring-1 ring-slate-200" />
+                        Vapor de sodio
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <span class="h-3 w-3 rounded-full bg-[#e67700] ring-1 ring-slate-200" />
+                        Bajo consumo
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <span class="h-3 w-3 rounded-full bg-[#64748b] ring-1 ring-slate-200" />
+                        Gabinete / tablero
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <span class="h-3 w-3 rounded-full bg-[#0ea5e9] ring-1 ring-slate-200" />
+                        Otros
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="h-px bg-slate-200" />
+
+                  <div>
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Potencias</p>
+                    <div class="mt-2 grid grid-cols-2 gap-2 text-sm text-slate-700">
+                      <div
+                        v-for="item in powerLegend"
+                        :key="item.value"
+                        class="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5"
+                      >
+                        <span class="h-3 w-3 rounded-full ring-1 ring-slate-200" :style="{ backgroundColor: item.color }" />
+                        <span>{{ item.value }} W</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                class="pointer-events-auto rounded-[22px] border border-slate-200 bg-white p-3 text-slate-900 shadow-[0_20px_60px_rgba(15,23,42,0.12)]"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="text-[9px] font-semibold uppercase tracking-[0.28em] text-slate-500">Cobertura</p>
+                    <p class="text-[10px] text-slate-500">Indicadores compactos sobre el mapa</p>
+                  </div>
+                  <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                    {{ visibleCounts.points }} visibles
+                  </span>
+                </div>
+
+                <div class="mt-3 grid grid-cols-2 gap-2">
+                  <div
+                    v-for="item in [
+                      { label: 'Puntos', value: visibleCounts.points },
+                      { label: 'Luminarias', value: visibleCounts.luminaries },
+                      { label: 'LED', value: `${visibleCounts.ledPoints}%` },
+                      { label: 'Pot. total', value: `${metrics?.totalPowerW?.toLocaleString('es-AR') ?? 0} W` }
+                    ]"
+                    :key="item.label"
+                    class="rounded-2xl border border-slate-200 bg-slate-50 px-2.5 py-2"
+                  >
+                    <p class="text-[9px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      {{ item.label }}
+                    </p>
+                    <p class="mt-1 text-sm font-semibold tracking-tight text-slate-950">
+                      {{ item.value }}
+                    </p>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-slate-50 px-2.5 py-2">
+                    <p class="text-[9px] font-semibold uppercase tracking-[0.22em] text-slate-500">Pot. LED</p>
+                    <p class="mt-1 text-sm font-semibold tracking-tight text-slate-950">
+                      {{ metrics?.ledPowerW?.toLocaleString('es-AR') ?? 0 }} W
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="absolute right-4 top-4 z-[5000] rounded-2xl bg-white/92 p-1 shadow-sm">
+              <UButton size="xs" color="gray" variant="solid" class="px-2.5" @click="toggleMapFullscreen">
+                {{ isMapFullscreen ? 'Salir pantalla' : 'Pantalla completa' }}
+              </UButton>
+            </div>
+            <div class="absolute right-4 top-16 z-[5000] rounded-2xl bg-white/92 p-1 shadow-sm">
+              <div class="flex gap-1">
+                <UButton
+                  size="xs"
+                  :color="mapLayer === 'street' ? 'primary' : 'gray'"
+                  variant="solid"
+                  class="px-2.5"
+                  @click="mapLayer = 'street'"
+                >
+                  Mapa
+                </UButton>
+                <UButton
+                  size="xs"
+                  :color="mapLayer === 'satellite' ? 'primary' : 'gray'"
+                  variant="solid"
+                  class="px-2.5"
+                  @click="mapLayer = 'satellite'"
+                >
+                  Satélite
+                </UButton>
+              </div>
+            </div>
+            <div class="pointer-events-none absolute inset-x-0 bottom-4 z-[5600] flex justify-center px-4">
+              <div
+                v-if="isMapFiltersOpen"
+                class="pointer-events-auto w-[min(20rem,calc(100vw-2rem))] rounded-[22px] border border-slate-300 bg-white p-3 shadow-[0_14px_40px_rgba(15,23,42,0.16)]"
+              >
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <p class="text-[9px] font-semibold uppercase tracking-[0.24em] text-slate-500">Filtros</p>
+                    <p class="text-[10px] text-slate-500">
+                      {{ filteredRecords.length.toLocaleString('es-AR') }} visibles de {{ allRecords.length.toLocaleString('es-AR') }}
+                    </p>
+                  </div>
+                  <div class="flex shrink-0 items-center gap-1">
+                    <UButton size="xs" color="gray" variant="solid" class="px-2" @click="clearFilters">
+                      Limpiar
+                    </UButton>
+                    <UButton variant="ghost" color="gray" size="xs" class="px-2" @click="isMapFiltersOpen = false">
+                      Ocultar
+                    </UButton>
+                  </div>
+                </div>
+
+                <div class="mt-3 grid grid-cols-2 gap-2">
+                  <select v-model="locality" class="fme-select map-filter-select map-filter-select--fill">
+                    <option value="">Todas las localidades</option>
+                    <option v-for="item in localities" :key="item.name" :value="item.name">{{ item.name }}</option>
+                  </select>
+                  <select v-model="technology" class="fme-select map-filter-select map-filter-select--fill">
+                    <option value="">Todas las tecnologías</option>
+                    <option v-for="item in options?.technologies ?? []" :key="item" :value="item">{{ item }}</option>
+                  </select>
+                  <select v-model="encendido" class="fme-select map-filter-select map-filter-select--compact map-filter-select--fill">
+                    <option value="">Todos los encendidos</option>
+                    <option v-for="item in options?.encendidos ?? []" :key="item" :value="item">{{ item }}</option>
+                  </select>
+                  <select v-model="powerValue" class="fme-select map-filter-select map-filter-select--compact map-filter-select--fill">
+                    <option value="">Todas las potencias</option>
+                    <option v-for="item in options?.powerValues ?? []" :key="item" :value="item">{{ item }} W</option>
+                  </select>
+                  <div class="col-span-2 text-[10px] text-slate-500">Sector: {{ selectedSector || 'sin selección' }}</div>
+                </div>
+              </div>
+
+              <div v-else class="pointer-events-auto flex justify-center">
+                <UButton size="xs" color="gray" variant="solid" class="shadow-lg" @click="isMapFiltersOpen = true">
+                  Mostrar filtros
+                </UButton>
+              </div>
+            </div>
+
+            <div class="absolute right-4 top-28 z-[5000] rounded-2xl bg-white/92 px-3 py-2 text-xs text-slate-600 shadow-sm">
               {{ filteredRecords.length }} visibles · {{ selectedSector || 'todos los sectores' }}
             </div>
-            <div class="h-[68vh] min-h-[560px]">
+
+            <div :class="isMapFullscreen ? 'h-screen min-h-0' : 'h-[68vh] min-h-[560px]'">
               <ClientOnly>
                 <LightingMap
                   :points="filteredRecords"
-                  :selected-key="selectedPoint?.point ?? null"
-                  @select="selectedPoint = $event"
+                  :selected-keys="selectedPointIds"
+                  :fit-bounds-key="mapFitBoundsKey"
+                  :map-layer="mapLayer"
+                  :draft-locations="draftLocations"
+                  :draft-location="draftLocation"
+                  @select="togglePointSelection"
+                  @map-click="isCreateMode && addDraftLocation($event)"
                 />
               </ClientOnly>
             </div>
+
+            <div v-if="selectedPoint" class="pointer-events-none absolute inset-0 z-[3000]">
+              <div class="absolute right-4 top-40 pointer-events-auto">
+                <UButton
+                  size="xs"
+                  color="primary"
+                  variant="solid"
+                  class="shadow-lg"
+                  @click="isFloatingFormOpen = !isFloatingFormOpen"
+                >
+                  {{ isFloatingFormOpen ? 'Ocultar ficha' : 'Ver ficha' }} · {{ selectedPointCount }}
+                </UButton>
+              </div>
+              <div
+                v-if="isFloatingFormOpen"
+                class="pointer-events-auto absolute right-4 top-52 w-[min(18rem,calc(100%-2rem))] max-h-[58vh] overflow-auto rounded-[22px] border border-slate-200 bg-white/96 p-2.5 text-[11px] shadow-2xl backdrop-blur-sm"
+              >
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <p class="text-[9px] font-semibold uppercase tracking-[0.24em] text-slate-500">Luminaria</p>
+                    <h3 class="truncate text-sm font-semibold text-slate-950">
+                      {{ selectedPoint.point || 'Punto sin nombre' }}
+                    </h3>
+                    <p class="truncate text-[10px] text-slate-500">
+                      {{ selectedPoint.address || 'Sin dirección' }} · {{ selectedEditableCount }}/{{ selectedPointCount }} editables
+                    </p>
+                  </div>
+                  <UButton variant="ghost" color="gray" size="xs" class="shrink-0 px-2" @click="clearSelection">
+                    Limpiar
+                  </UButton>
+                </div>
+
+                <div class="mt-2 grid gap-1.5">
+                  <div class="rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5">
+                    <p class="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-500">Tecnología</p>
+                    <p class="mt-0.5 text-sm font-semibold text-slate-900">{{ formatEditValue(selectedPoint.technology) }}</p>
+                  </div>
+                  <div class="rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5">
+                    <p class="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-500">Potencia</p>
+                    <p class="mt-0.5 text-sm font-semibold text-slate-900">{{ formatPowerDisplay(selectedPoint.powerW) }}</p>
+                  </div>
+                  <div class="rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5">
+                    <p class="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-500">Encendido</p>
+                    <p class="mt-0.5 text-sm font-semibold text-slate-900">{{ formatEditValue(selectedPoint.encendido) }}</p>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+            </div>
           </section>
+
+          <div class="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+            <div class="rounded-[24px] border border-slate-200 bg-white p-4">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <p class="text-sm font-semibold text-slate-900">Buscador de domicilios / sectores</p>
+                  <p class="text-xs text-slate-500">Se agrupan variantes del mismo texto.</p>
+                </div>
+                <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                  {{ sectors.length }} sectores
+                </span>
+              </div>
+              <UInput v-model="sectorSearch" class="mt-3" placeholder="Ej: B° Hipolito Irigoyen, San Cayetano..." />
+
+              <div class="mt-3 max-h-[22rem] space-y-2 overflow-auto pr-1">
+                <button
+                  v-for="sector in filteredSectors"
+                  :key="sector.key"
+                  type="button"
+                  class="fme-sector-item"
+                  :class="selectedSector === sector.label ? 'fme-sector-item-active' : ''"
+                  @click="applySector(sector.label)"
+                >
+                  <div class="min-w-0 text-left">
+                    <p class="truncate text-sm font-medium text-slate-900">{{ sector.displayLabel ?? sector.label }}</p>
+                    <p class="text-xs text-slate-500">{{ sector.count }} puntos georreferenciados</p>
+                  </div>
+                  <div class="flex items-center gap-3 text-sm font-semibold">
+                    <span class="text-slate-500">{{ sector.ledPercentage }}% LED</span>
+                    <span class="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">{{ sector.count }}</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div class="rounded-[24px] border border-slate-200 bg-white p-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm font-semibold text-slate-900">Sectores más presentes</p>
+                  <p class="text-xs text-slate-500">Top por cantidad de puntos</p>
+                </div>
+                <span class="text-xs text-slate-500">Mapa + informe</span>
+              </div>
+              <div class="mt-3 grid gap-2">
+                <div
+                  v-for="sector in sectors.slice(0, 6)"
+                  :key="sector.key"
+                  class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <button type="button" class="min-w-0 text-left" @click="applySector(sector.label)">
+                      <p class="truncate text-sm font-semibold text-slate-900">{{ sector.displayLabel ?? sector.label }}</p>
+                      <p class="text-xs text-slate-500">{{ sector.count }} puntos · {{ sector.ledPercentage }}% LED</p>
+                    </button>
+                    <span class="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
+                      {{ sector.count }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                {{
+                  selectedPoint
+                    ? `Punto seleccionado: ${selectedPoint.point} · ${selectedPoint.address || 'Sin dirección'} · ${selectedPoint.technology}. Seleccionadas: ${selectedPointCount}.`
+                    : 'Hacé clic sobre un punto del mapa para ver el detalle operativo.'
+                }}
+              </div>
+            </div>
+          </div>
 
           <div class="grid gap-5 xl:grid-cols-2" data-pdf-exclude>
             <UCard class="glass">

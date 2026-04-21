@@ -7,7 +7,25 @@ export type TechnologyGroup =
 
 export type CoordinateStatus = 'ok' | 'invalid' | 'missing';
 
+export interface LightingFieldChange {
+  before: string | number | null;
+  after: string | number | null;
+}
+
+export interface LightingChangeHistoryEntry {
+  timestamp: string;
+  changes: {
+    technology?: LightingFieldChange;
+    powerW?: LightingFieldChange;
+    encendido?: LightingFieldChange;
+  };
+}
+
 export interface LightingRecord {
+  recordId: string;
+  source?: 'excel' | 'manual';
+  createdAt?: string;
+  updatedAt?: string;
   point: string;
   position: string;
   technology: string;
@@ -28,6 +46,7 @@ export interface LightingRecord {
   sectorKey: string;
   sectorLabel: string;
   qualityFlags: string[];
+  history: LightingChangeHistoryEntry[];
 }
 
 export interface MeterRecord {

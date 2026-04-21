@@ -3,6 +3,7 @@ import path from 'node:path';
 import ExcelJS from 'exceljs';
 import type {
   DashboardDataset,
+  LightingChangeHistoryEntry,
   LightingDataset,
   LightingRecord,
   LocalitySummary,
@@ -15,12 +16,101 @@ import type {
 type RawRow = Record<string, string | number | undefined>;
 
 const CACHE_TTL_MS = 1000 * 60 * 10;
-
 let lightingCache: { value: Promise<LightingDataset>; expiresAt: number } | null = null;
 let meterCache: { value: Promise<MeterDataset>; expiresAt: number } | null = null;
 
 function getDataPath(fileName: string) {
   return path.join(process.cwd(), 'data', fileName);
+}
+
+interface LightingRecordInput {
+  recordId: string;
+  source: 'excel' | 'manual';
+  point: string;
+  position: string;
+  coordinateStatus: 'ok' | 'invalid' | 'missing';
+  technology: string;
+  powerW: number | null;
+  encendido: string;
+  observations: string;
+  quantity: number;
+  supply: string;
+  address: string;
+  locality: string;
+  lat: number | null;
+  lng: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+function readJsonFile<T>(fileName: string, fallback: T): T {
+  const filePath = getDataPath(fileName);
+  if (!fs.existsSync(filePath)) {
+    return fallback;
+  }
+
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    if (!raw.trim()) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonFile(fileName: string, content: unknown) {
+  const filePath = getDataPath(fileName);
+  fs.writeFileSync(filePath, `${JSON.stringify(content, null, 2)}\n`, 'utf8');
+}
+
+function buildLightingRecord(input: LightingRecordInput, history: LightingChangeHistoryEntry[] = []): LightingRecord {
+  const technologyGroup = classifyTechnology(input.technology);
+  const isLuminaire = isLuminaireType(technologyGroup);
+  const coordinateStatus = input.coordinateStatus;
+  const led = technologyGroup === 'led';
+  const powerTotalW = isLuminaire && input.powerW ? input.powerW * input.quantity : 0;
+  const sectorLabel = input.address || 'Sin dirección';
+  const sectorKey = normalizeText(sectorLabel);
+  const qualityFlags: string[] = [];
+
+  if (coordinateStatus !== 'ok') qualityFlags.push('no_coordinate');
+  if (isLuminaire && input.powerW === null) qualityFlags.push('no_power');
+  if (!input.locality) qualityFlags.push('no_locality');
+  if (!input.supply) qualityFlags.push('no_supply');
+  if (!input.address) qualityFlags.push('no_address');
+
+  return {
+    recordId: input.recordId,
+    source: input.source,
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt,
+    point: input.point,
+    position: input.position,
+    technology: input.technology,
+    technologyGroup,
+    powerW: input.powerW,
+    encendido: input.encendido,
+    observations: input.observations,
+    quantity: input.quantity,
+    supply: input.supply,
+    address: input.address,
+    locality: input.locality,
+    lat: input.lat,
+    lng: input.lng,
+    coordinateStatus,
+    isLuminaire,
+    isLed: led,
+    powerTotalW,
+    sectorKey,
+    sectorLabel,
+    qualityFlags,
+    history
+  };
+}
+
+export function invalidateMunicipalCaches() {
+  lightingCache = null;
+  meterCache = null;
 }
 
 async function readWorkbookRows(fileName: string) {
@@ -129,50 +219,34 @@ async function buildLightingDataset(): Promise<LightingDataset> {
     const rows = await readWorkbookRows('alumbrado.xlsx');
     const headers = rows[0].map((header) => String(header).trim());
 
-    const records = rows.slice(1).map((row) => {
+    const records = rows.slice(1).map((row, index) => {
       const data = rowToObject(headers, row);
-      const technology = String(data['TIPO'] ?? '').trim();
-      const technologyGroup = classifyTechnology(technology);
-      const isLuminaire = isLuminaireType(technologyGroup);
-      const quantity = isLuminaire ? parseQuantity(data['CANTIDAD POR PUNTO']) : 0;
-      const powerW = parseNumber(data['POTENCIA (W)']);
+      const recordId = `alumbrado:${index + 2}`;
+      const baseTechnology = String(data['TIPO'] ?? '').trim();
+      const basePowerW = parseNumber(data['POTENCIA (W)']);
+      const baseEncendido = String(data['TIPO DE ENCENDIDO'] ?? '').trim();
       const position = String(data['POSICIÓN'] ?? '').trim();
-      const address = String(data['DIRECCIÓN'] ?? '').trim();
       const coordinate = parseCoordinate(position);
-      const sectorLabel = address || 'Sin dirección';
-      const sectorKey = normalizeText(sectorLabel);
-      const led = technologyGroup === 'led';
-      const powerTotalW = isLuminaire && powerW ? powerW * quantity : 0;
 
-      const qualityFlags: string[] = [];
-      if (coordinate.status !== 'ok') qualityFlags.push('no_coordinate');
-      if (isLuminaire && powerW === null) qualityFlags.push('no_power');
-      if (!String(data['LOCALIDAD'] ?? '').trim()) qualityFlags.push('no_locality');
-      if (!String(data['SUMINISTRO'] ?? '').trim()) qualityFlags.push('no_supply');
-      if (!address) qualityFlags.push('no_address');
-
-      return {
-        point: String(data['PUNTO'] ?? '').trim(),
-        position,
-        technology,
-        technologyGroup,
-        powerW,
-        encendido: String(data['TIPO DE ENCENDIDO'] ?? '').trim(),
-        observations: String(data['OBSERVACIONES'] ?? '').trim(),
-        quantity,
-        supply: String(data['SUMINISTRO'] ?? '').trim(),
-        address,
-        locality: String(data['LOCALIDAD'] ?? '').trim(),
-        lat: coordinate.lat,
-        lng: coordinate.lng,
-        coordinateStatus: coordinate.status,
-        isLuminaire,
-        isLed: led,
-        powerTotalW,
-        sectorKey,
-        sectorLabel,
-        qualityFlags
-      } satisfies LightingRecord;
+      return buildLightingRecord(
+        {
+          recordId,
+          source: 'excel',
+          point: String(data['PUNTO'] ?? '').trim(),
+          position,
+          coordinateStatus: coordinate.status,
+          technology: baseTechnology,
+          powerW: basePowerW,
+          encendido: baseEncendido,
+          observations: String(data['OBSERVACIONES'] ?? '').trim(),
+          quantity: parseQuantity(data['CANTIDAD POR PUNTO']),
+          supply: String(data['SUMINISTRO'] ?? '').trim(),
+          address: String(data['DIRECCIÓN'] ?? '').trim(),
+          locality: String(data['LOCALIDAD'] ?? '').trim(),
+          lat: coordinate.lat,
+          lng: coordinate.lng
+        }
+      );
     });
 
     const duplicateCounter = new Map<string, number>();
