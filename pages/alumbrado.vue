@@ -58,6 +58,11 @@ const metrics = computed(() => data.value?.metrics);
 const options = computed(() => data.value?.options);
 const sectors = computed(() => data.value?.sectors ?? []);
 const localities = computed(() => data.value?.localities ?? []);
+const mapVisualKey = computed(() =>
+  allRecords.value
+    .map((record) => [record.recordId, record.technology, record.powerW ?? '', record.encendido, record.technologyGroup].join(':'))
+    .join('|')
+);
 const selectedPoints = computed(() =>
   selectedPointIds.value
     .map((recordId) => allRecords.value.find((record) => record.recordId === recordId))
@@ -1412,6 +1417,7 @@ useHead({
                   :points="filteredRecords"
                   :selected-keys="selectedPointIds"
                   :fit-bounds-key="mapFitBoundsKey"
+                  :visual-key="mapVisualKey"
                   :map-layer="mapLayer"
                   :draft-locations="draftLocations"
                   :draft-location="draftLocation"

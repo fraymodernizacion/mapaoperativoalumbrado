@@ -6,6 +6,7 @@ const props = defineProps<{
   selectedKey?: string | null;
   selectedKeys?: string[];
   fitBoundsKey?: string | null;
+  visualKey?: string | null;
   mapLayer?: 'street' | 'satellite';
   draftLocations?: { lat: number; lng: number }[] | null;
   draftLocation?: { lat: number; lng: number } | null;
@@ -299,6 +300,13 @@ watch(
     nextTick(() => {
       emitCenterChange();
     });
+  }
+);
+
+watch(
+  () => props.visualKey,
+  () => {
+    renderMarkers({ fitToBounds: false });
   }
 );
 
