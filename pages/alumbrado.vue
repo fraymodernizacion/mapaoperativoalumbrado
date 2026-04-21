@@ -4,6 +4,8 @@ import type { LightingRecord } from '~/types/municipal';
 const { data, pending, error, refresh } = await useAsyncData('alumbrado-dataset', () => $fetch('/api/alumbrado'), { server: false });
 const mapCaptureRef = ref<HTMLElement | null>(null);
 const isExporting = ref(false);
+const isColorLegendOpen = ref(true);
+const isCoverageOpen = ref(true);
 
 const locality = ref('');
 const technology = ref('');
@@ -31,6 +33,7 @@ const newPointEncendido = ref('');
 const newPointLocality = ref('');
 const newPointLocalityMode = ref('suggested');
 const newPointAddress = ref('');
+const newPointAddressPreset = ref('');
 const newPointAddressMode = ref('suggested');
 const newPointSupply = ref('');
 const newPointObservations = ref('');
@@ -110,10 +113,10 @@ const nearbyLocalitySuggestions = computed(() => {
     return left.minDistanceKm - right.minDistanceKm;
   });
 });
-const newPointLocalityOptions = computed(() => {
-  const suggested = nearbyLocalitySuggestions.value.map((item) => item.locality);
-  const remaining = localities.value.map((item) => item.name).filter((name) => !suggested.includes(name));
-  return [...suggested, ...remaining];
+const newPointLocalitySuggestedOptions = computed(() => nearbyLocalitySuggestions.value.map((item) => item.locality));
+const newPointLocalityOtherOptions = computed(() => {
+  const suggested = new Set(newPointLocalitySuggestedOptions.value);
+  return localities.value.map((item) => item.name).filter((name) => !suggested.has(name));
 });
 const nearbyAddressSuggestions = computed(() => {
   if (!draftLocation.value) return [];
@@ -149,7 +152,7 @@ const nearbyAddressSuggestions = computed(() => {
     return left.minDistanceKm - right.minDistanceKm;
   });
 });
-const newPointAddressOptions = computed(() => nearbyAddressSuggestions.value.map((item) => item.label));
+const newPointAddressSuggestedOptions = computed(() => nearbyAddressSuggestions.value.map((item) => item.label));
 const mapFitBoundsKey = computed(
   () => `${locality.value}|${technology.value}|${encendido.value}|${powerValue.value}|${selectedSector.value}|${sectorSearch.value}`
 );
@@ -253,6 +256,7 @@ function applyNearbyLocalitySuggestion(localityName: string) {
 
 function applyNearbyAddressSuggestion(addressLabel: string) {
   newPointAddress.value = addressLabel;
+  newPointAddressPreset.value = addressLabel;
   newPointAddressMode.value = 'suggested';
 }
 
@@ -296,9 +300,10 @@ function resetNewPointForm() {
   newPointTechnology.value = '';
   newPointPowerW.value = '';
   newPointEncendido.value = '';
-  newPointLocality.value = '';
+  newPointLocality.value = newPointLocalitySuggestedOptions.value[0] ?? '';
   newPointLocalityMode.value = nearbyLocalitySuggestions.value.length ? 'suggested' : 'manual';
-  newPointAddress.value = '';
+  newPointAddressPreset.value = nearbyAddressSuggestions.value[0]?.label ?? '__manual__';
+  newPointAddress.value = newPointAddressPreset.value === '__manual__' ? '' : newPointAddressPreset.value;
   newPointAddressMode.value = nearbyAddressSuggestions.value.length ? 'suggested' : 'manual';
   newPointSupply.value = '';
   newPointObservations.value = '';
@@ -336,13 +341,19 @@ watch(
 );
 
 watch(
-  nearbyAddressSuggestions,
-  (suggestions) => {
+  newPointAddressPreset,
+  (preset) => {
     if (!isCreateMode.value) return;
-    if (newPointAddressMode.value === 'manual' && newPointAddress.value) return;
-    const firstSuggestion = suggestions[0]?.label;
-    if (firstSuggestion) {
-      newPointAddress.value = firstSuggestion;
+    if (preset === '__manual__') {
+      newPointAddressMode.value = 'manual';
+      if (!newPointAddress.value) {
+        newPointAddress.value = '';
+      }
+      return;
+    }
+
+    if (preset) {
+      newPointAddress.value = preset;
       newPointAddressMode.value = 'suggested';
     }
   },
@@ -1038,9 +1049,18 @@ useHead({
                       Las capas usan estos colores para identificar cada punto.
                     </p>
                   </div>
+                  <UButton
+                    size="xs"
+                    variant="ghost"
+                    color="gray"
+                    class="shrink-0 px-2"
+                    @click="isColorLegendOpen = !isColorLegendOpen"
+                  >
+                    {{ isColorLegendOpen ? 'Ocultar' : 'Mostrar' }}
+                  </UButton>
                 </div>
 
-                <div class="mt-3 grid gap-3">
+                <div v-if="isColorLegendOpen" class="mt-3 grid gap-3">
                   <div>
                     <p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Tecnologías</p>
                     <div class="mt-2 space-y-1.5 text-sm text-slate-700">
@@ -1093,12 +1113,23 @@ useHead({
                     <p class="text-[9px] font-semibold uppercase tracking-[0.28em] text-slate-500">Cobertura</p>
                     <p class="text-[10px] text-slate-500">Indicadores compactos sobre el mapa</p>
                   </div>
-                  <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                    {{ visibleCounts.points }} visibles
-                  </span>
+                  <div class="flex items-center gap-2">
+                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                      {{ visibleCounts.points }} visibles
+                    </span>
+                    <UButton
+                      size="xs"
+                      variant="ghost"
+                      color="gray"
+                      class="shrink-0 px-2"
+                      @click="isCoverageOpen = !isCoverageOpen"
+                    >
+                      {{ isCoverageOpen ? 'Ocultar' : 'Mostrar' }}
+                    </UButton>
+                  </div>
                 </div>
 
-                <div class="mt-3 grid grid-cols-2 gap-2">
+                <div v-if="isCoverageOpen" class="mt-3 grid grid-cols-2 gap-2">
                   <div
                     v-for="item in [
                       { label: 'Puntos', value: visibleCounts.points },
@@ -1154,8 +1185,8 @@ useHead({
             </div>
             <div class="pointer-events-none absolute inset-x-0 bottom-4 z-[5600] flex justify-center px-4">
               <div
-                v-if="isMapFiltersOpen"
-                class="pointer-events-auto w-[min(20rem,calc(100vw-2rem))] rounded-[22px] border border-slate-300 bg-white p-3 shadow-[0_14px_40px_rgba(15,23,42,0.16)]"
+              v-if="isMapFiltersOpen"
+                class="pointer-events-auto w-[min(28rem,calc(100vw-2rem))] rounded-[22px] border border-slate-300 bg-white p-3 shadow-[0_14px_40px_rgba(15,23,42,0.16)]"
               >
                 <div class="flex items-start justify-between gap-2">
                   <div class="min-w-0">
@@ -1203,9 +1234,6 @@ useHead({
             </div>
 
             <div class="absolute right-4 top-28 z-[5000] flex flex-col gap-2">
-              <div class="rounded-2xl bg-white/92 px-3 py-2 text-xs text-slate-600 shadow-sm">
-                {{ filteredRecords.length }} visibles · {{ selectedSector || 'todos los sectores' }}
-              </div>
               <UButton
                 size="xs"
                 :color="isCreateMode ? 'primary' : 'gray'"
@@ -1215,6 +1243,156 @@ useHead({
               >
                 {{ isCreateMode ? 'Cancelar alta' : 'Nuevo punto' }}
               </UButton>
+            </div>
+
+            <div
+              v-if="isCreateMode"
+              class="pointer-events-none absolute right-4 top-48 z-[5600] w-[min(25rem,calc(100vw-2rem))]"
+            >
+              <div class="pointer-events-auto max-h-[72vh] overflow-auto rounded-[26px] border border-slate-200 bg-white p-3.5 shadow-[0_22px_64px_rgba(15,23,42,0.18)]">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="text-[9px] font-semibold uppercase tracking-[0.26em] text-slate-500">Nuevo punto</p>
+                    <h3 class="truncate text-base font-semibold text-slate-950">Alta sobre el mapa</h3>
+                    <p class="text-[11px] text-slate-500">
+                      Marcá puntos con click en el mapa y completá los datos en esta ficha flotante.
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                      {{ draftPointCount }} marcados
+                    </span>
+                    <UButton size="xs" variant="ghost" color="gray" @click="stopCreateMode">
+                      Cerrar
+                    </UButton>
+                  </div>
+                </div>
+
+                <div class="mt-4 grid gap-2 sm:grid-cols-2">
+                  <div class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Código</p>
+                    <p class="mt-1 text-lg font-semibold text-slate-950">{{ newPointName }}</p>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Marcados</p>
+                    <p class="mt-1 text-lg font-semibold text-slate-950">{{ draftPointCount }}</p>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 sm:col-span-2">
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Cómo cargar</p>
+                    <p class="mt-1 text-sm text-slate-600">
+                      Hacé click varias veces sobre el mapa para marcar puntos. Cada click agrega un registro al lote.
+                    </p>
+                  </div>
+                </div>
+
+                <div class="mt-4 grid gap-2 sm:grid-cols-3">
+                  <select v-model="newPointTechnology" class="fme-select fme-select--compact w-full">
+                    <option value="">Tecnología</option>
+                    <option v-for="item in options?.technologies ?? []" :key="item" :value="item">{{ item }}</option>
+                  </select>
+                  <select v-model="newPointPowerW" class="fme-select fme-select--compact w-full">
+                    <option value="">Potencia</option>
+                    <option v-for="item in options?.powerValues ?? []" :key="item" :value="item">{{ item }} W</option>
+                  </select>
+                  <select v-model="newPointEncendido" class="fme-select fme-select--compact w-full">
+                    <option value="">Encendido</option>
+                    <option v-for="item in options?.encendidos ?? []" :key="item" :value="item">{{ item }}</option>
+                  </select>
+                </div>
+
+                <div class="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                  <div class="space-y-1.5">
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Localidad</p>
+                    <select v-model="newPointLocality" class="fme-select fme-select--compact w-full">
+                      <option value="">Elegí una localidad</option>
+                      <optgroup v-if="newPointLocalitySuggestedOptions.length" label="Sugeridas por cercanía">
+                        <option v-for="item in newPointLocalitySuggestedOptions" :key="`suggested-${item}`" :value="item">
+                          {{ item }}
+                        </option>
+                      </optgroup>
+                      <optgroup v-if="newPointLocalityOtherOptions.length" label="Otras localidades">
+                        <option v-for="item in newPointLocalityOtherOptions" :key="`other-${item}`" :value="item">
+                          {{ item }}
+                        </option>
+                      </optgroup>
+                    </select>
+                    <p class="text-[10px] text-slate-500">Se ordena por puntos cercanos al pin marcado.</p>
+                  </div>
+                  <div class="space-y-1.5">
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Dirección / sector</p>
+                    <select v-model="newPointAddressPreset" class="fme-select fme-select--compact w-full">
+                      <option value="">Elegí una sugerencia</option>
+                      <optgroup v-if="newPointAddressSuggestedOptions.length" label="Sugeridas por cercanía">
+                        <option v-for="item in newPointAddressSuggestedOptions" :key="`address-${item}`" :value="item">
+                          {{ item }}
+                        </option>
+                      </optgroup>
+                      <option value="__manual__">Escribir manualmente</option>
+                    </select>
+                    <UInput
+                      v-if="newPointAddressMode === 'manual'"
+                      v-model="newPointAddress"
+                      placeholder="Nueva dirección / sector"
+                    />
+                    <p v-else class="text-[10px] text-slate-500">Seleccioná una sugerencia o pasá a carga manual.</p>
+                  </div>
+
+                  <div class="grid gap-2 sm:grid-cols-2">
+                    <UInput v-model="newPointSupply" placeholder="Suministro" />
+                    <UInput v-model="newPointQuantity" type="number" min="1" placeholder="Cantidad" />
+                  </div>
+                </div>
+
+                <UInput class="mt-4" v-model="newPointObservations" placeholder="Observaciones" />
+
+                <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                  <div class="flex items-center justify-between gap-2">
+                    <div>
+                      <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Pines marcados</p>
+                      <p class="text-xs text-slate-500">
+                        {{ draftLocations.length }} ubicación{{ draftLocations.length === 1 ? '' : 'es' }} marcada{{ draftLocations.length === 1 ? '' : 's' }}
+                      </p>
+                    </div>
+                    <span class="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                      Lote {{ draftPointCount }}
+                    </span>
+                  </div>
+                  <div v-if="draftLocations.length" class="mt-3 max-h-32 space-y-2 overflow-auto pr-1">
+                    <div
+                      v-for="(location, index) in draftLocations"
+                      :key="`${location.lat}-${location.lng}-${index}`"
+                      class="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                    >
+                      <div class="min-w-0">
+                        <p class="truncate text-[11px] font-semibold text-slate-800">Punto {{ index + 1 }}</p>
+                        <p class="truncate text-[10px] text-slate-500">
+                          {{ location.lat.toFixed(5) }}, {{ location.lng.toFixed(5) }}
+                        </p>
+                      </div>
+                      <UButton size="xs" color="gray" variant="ghost" @click="removeDraftLocation(index)">Quitar</UButton>
+                    </div>
+                  </div>
+                  <p v-else class="mt-3 text-xs text-slate-500">Todavía no marcaste puntos en el mapa.</p>
+                </div>
+
+                <div class="mt-4 flex flex-wrap items-center gap-2">
+                  <UButton size="xs" color="gray" variant="solid" @click="removeLastDraftLocation">Borrar último</UButton>
+                  <UButton size="xs" color="gray" variant="solid" @click="clearDraftLocations">Limpiar todo</UButton>
+                </div>
+
+                <div class="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <div>
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Guardar lote</p>
+                    <p class="text-xs text-slate-500">Cada click en el mapa se guarda como un punto consecutivo.</p>
+                  </div>
+                  <UButton color="primary" :loading="isSavingNewPoint" :disabled="isSavingNewPoint" @click="saveNewPoint">
+                    Guardar punto(s)
+                  </UButton>
+                </div>
+
+                <p v-if="createPointError" class="mt-3 text-xs font-medium text-rose-600">{{ createPointError }}</p>
+                <p v-else-if="createPointMessage" class="mt-3 text-xs font-medium text-emerald-700">{{ createPointMessage }}</p>
+              </div>
             </div>
 
             <div :class="isMapFullscreen ? 'h-screen min-h-0' : 'h-[68vh] min-h-[560px]'">
@@ -1246,7 +1424,7 @@ useHead({
               </div>
               <div
                 v-if="isFloatingFormOpen"
-                class="pointer-events-auto absolute right-4 top-52 w-[min(18rem,calc(100%-2rem))] max-h-[58vh] overflow-auto rounded-[22px] border border-slate-200 bg-white/96 p-2.5 text-[11px] shadow-2xl backdrop-blur-sm"
+                class="pointer-events-auto absolute right-4 top-60 w-[min(23rem,calc(100%-2rem))] max-h-[66vh] overflow-auto rounded-[22px] border border-slate-200 bg-white p-3 text-[11px] shadow-2xl"
               >
                 <div class="flex items-start justify-between gap-2">
                   <div class="min-w-0">
@@ -1263,16 +1441,16 @@ useHead({
                   </UButton>
                 </div>
 
-                <div class="mt-2 grid gap-2">
-                  <select v-model="editTechnology" class="fme-select fme-select--compact">
+                <div class="mt-3 grid gap-2">
+                  <select v-model="editTechnology" class="fme-select fme-select--compact w-full">
                     <option value="">Tecnología</option>
                     <option v-for="item in options?.technologies ?? []" :key="item" :value="item">{{ item }}</option>
                   </select>
-                  <select v-model="editPowerW" class="fme-select fme-select--compact">
+                  <select v-model="editPowerW" class="fme-select fme-select--compact w-full">
                     <option value="">Potencia</option>
                     <option v-for="item in options?.powerValues ?? []" :key="item" :value="item">{{ item }} W</option>
                   </select>
-                  <select v-model="editEncendido" class="fme-select fme-select--compact">
+                  <select v-model="editEncendido" class="fme-select fme-select--compact w-full">
                     <option value="">Encendido</option>
                     <option v-for="item in options?.encendidos ?? []" :key="item" :value="item">{{ item }}</option>
                   </select>
@@ -1357,105 +1535,6 @@ useHead({
               </div>
             </div>
           </div>
-
-          <UCard class="glass" data-pdf-exclude>
-            <template #header>
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <p class="text-sm font-semibold text-slate-900">Nuevo punto</p>
-                  <p class="text-xs text-slate-500">Activá el modo alta y marcá los puntos con click en el mapa</p>
-                </div>
-                <div class="flex items-center gap-2">
-                  <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                    {{ draftPointCount }} marcados
-                  </span>
-                  <UButton size="xs" color="primary" variant="solid" @click="isCreateMode ? stopCreateMode() : startCreateMode()">
-                    {{ isCreateMode ? 'Cancelar alta' : 'Nuevo punto' }}
-                  </UButton>
-                </div>
-              </div>
-            </template>
-
-            <div v-if="isCreateMode" class="space-y-4 text-sm text-slate-700">
-              <div class="grid gap-3 md:grid-cols-3">
-                <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                  <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Código</p>
-                  <p class="mt-1 text-lg font-semibold text-slate-950">{{ newPointName }}</p>
-                </div>
-                <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3 md:col-span-2">
-                  <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Cómo cargar</p>
-                  <p class="mt-1 text-sm text-slate-600">Hacé click varias veces sobre el mapa para marcar puntos. Cada click agrega un registro al lote.</p>
-                </div>
-              </div>
-
-              <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                <select v-model="newPointTechnology" class="fme-select fme-select--compact">
-                  <option value="">Tecnología</option>
-                  <option v-for="item in options?.technologies ?? []" :key="item" :value="item">{{ item }}</option>
-                </select>
-                <select v-model="newPointPowerW" class="fme-select fme-select--compact">
-                  <option value="">Potencia</option>
-                  <option v-for="item in options?.powerValues ?? []" :key="item" :value="item">{{ item }} W</option>
-                </select>
-                <select v-model="newPointEncendido" class="fme-select fme-select--compact">
-                  <option value="">Encendido</option>
-                  <option v-for="item in options?.encendidos ?? []" :key="item" :value="item">{{ item }}</option>
-                </select>
-              </div>
-
-              <div class="grid gap-3 md:grid-cols-2">
-                <div class="space-y-1.5">
-                  <input
-                    v-model="newPointLocality"
-                    list="new-point-localities"
-                    class="fme-select fme-select--compact w-full"
-                    placeholder="Localidad"
-                  />
-                  <datalist id="new-point-localities">
-                    <option v-for="item in newPointLocalityOptions" :key="item" :value="item" />
-                  </datalist>
-                </div>
-                <div class="space-y-1.5">
-                  <input
-                    v-model="newPointAddress"
-                    list="new-point-addresses"
-                    class="fme-select fme-select--compact w-full"
-                    placeholder="Dirección / sector"
-                  />
-                  <datalist id="new-point-addresses">
-                    <option v-for="item in newPointAddressOptions" :key="item" :value="item" />
-                  </datalist>
-                </div>
-                <UInput v-model="newPointSupply" placeholder="Suministro" />
-                <UInput v-model="newPointQuantity" type="number" min="1" placeholder="Cantidad" />
-              </div>
-
-              <UInput v-model="newPointObservations" placeholder="Observaciones" />
-
-              <div class="flex flex-wrap items-center gap-2">
-                <UButton size="xs" color="gray" variant="solid" @click="removeLastDraftLocation">Borrar último</UButton>
-                <UButton size="xs" color="gray" variant="solid" @click="clearDraftLocations">Limpiar todo</UButton>
-                <span class="text-xs text-slate-500">{{ draftLocations.length }} ubicación{{ draftLocations.length === 1 ? '' : 'es' }} marcada{{ draftLocations.length === 1 ? '' : 's' }}</span>
-              </div>
-
-              <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <div>
-                  <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Guardar lote</p>
-                  <p class="text-xs text-slate-500">Cada click en el mapa se guarda como un punto consecutivo.</p>
-                </div>
-                <UButton color="primary" :loading="isSavingNewPoint" :disabled="isSavingNewPoint" @click="saveNewPoint">
-                  Guardar punto(s)
-                </UButton>
-              </div>
-
-              <p v-if="createPointError" class="text-xs font-medium text-rose-600">{{ createPointError }}</p>
-              <p v-else-if="createPointMessage" class="text-xs font-medium text-emerald-700">{{ createPointMessage }}</p>
-            </div>
-
-            <div v-else class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-600">
-              Activá <strong>Nuevo punto</strong> para empezar a marcar ubicaciones sobre el mapa.
-            </div>
-          </UCard>
 
           <div class="grid gap-5 xl:grid-cols-2" data-pdf-exclude>
             <UCard class="glass">
