@@ -286,6 +286,11 @@ function clearSelection() {
   selectedPointId.value = null;
 }
 
+function handleMapClick(location: { lat: number; lng: number }) {
+  if (!isCreateMode.value) return;
+  addDraftLocation(location);
+}
+
 function resetNewPointForm() {
   newPointName.value = nextManualPointCode.value;
   newPointTechnology.value = '';
@@ -1197,8 +1202,19 @@ useHead({
               </div>
             </div>
 
-            <div class="absolute right-4 top-28 z-[5000] rounded-2xl bg-white/92 px-3 py-2 text-xs text-slate-600 shadow-sm">
-              {{ filteredRecords.length }} visibles · {{ selectedSector || 'todos los sectores' }}
+            <div class="absolute right-4 top-28 z-[5000] flex flex-col gap-2">
+              <div class="rounded-2xl bg-white/92 px-3 py-2 text-xs text-slate-600 shadow-sm">
+                {{ filteredRecords.length }} visibles · {{ selectedSector || 'todos los sectores' }}
+              </div>
+              <UButton
+                size="xs"
+                :color="isCreateMode ? 'primary' : 'gray'"
+                variant="solid"
+                class="justify-center shadow-sm"
+                @click="isCreateMode ? stopCreateMode() : startCreateMode()"
+              >
+                {{ isCreateMode ? 'Cancelar alta' : 'Nuevo punto' }}
+              </UButton>
             </div>
 
             <div :class="isMapFullscreen ? 'h-screen min-h-0' : 'h-[68vh] min-h-[560px]'">
@@ -1211,7 +1227,7 @@ useHead({
                   :draft-locations="draftLocations"
                   :draft-location="draftLocation"
                   @select="togglePointSelection"
-                  @map-click="isCreateMode && addDraftLocation($event)"
+                  @map-click="handleMapClick($event)"
                 />
               </ClientOnly>
             </div>
