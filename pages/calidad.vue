@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { data, pending, error } = await useAsyncData('quality-dataset', () => $fetch('/api/dashboard'));
+const { data, pending, error } = await useAsyncData('quality-dataset', () => $fetch('/api/dashboard'), { server: false });
 
 const lighting = computed(() => data.value?.lighting);
 const meters = computed(() => data.value?.meters);

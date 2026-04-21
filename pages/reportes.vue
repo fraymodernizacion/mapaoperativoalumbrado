@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { data } = await useAsyncData('reports-dataset', () => $fetch('/api/dashboard'));
+const { data } = await useAsyncData('reports-dataset', () => $fetch('/api/dashboard'), { server: false });
 
 function printPage() {
   window.print();

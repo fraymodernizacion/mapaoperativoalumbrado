@@ -1,0 +1,58 @@
+name: Deploy to Hostinger
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      DEPLOY_PATH: ${{ secrets.HOSTINGER_PATH }}
+      SSH_HOST: ${{ secrets.HOSTINGER_HOST }}
+      SSH_PORT: ${{ secrets.HOSTINGER_PORT }}
+      SSH_USER: ${{ secrets.HOSTINGER_USER }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate static frontend
+        run: npm run generate
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HOSTINGER_SSH_KEY }}
+
+      - name: Trust Hostinger host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${SSH_PORT}" "${SSH_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Deploy static frontend
+        run: |
+          rsync -az --delete -e "ssh -p ${SSH_PORT}" .output/public/ "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/"
+
+      - name: Deploy PHP API
+        run: |
+          rsync -az --delete -e "ssh -p ${SSH_PORT}" public/api/ "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/api/"
+
+      - name: Deploy database assets
+        run: |
+          rsync -az --delete -e "ssh -p ${SSH_PORT}" database/ "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/database/"
+
+      - name: Deploy import script
+        run: |
+          rsync -az --delete -e "ssh -p ${SSH_PORT}" scripts/import_seed_data.php "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/scripts/"

@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import type { LightingRecord } from '~/types/municipal';
 
-const { data, pending, error, refresh } = await useAsyncData('alumbrado-dataset', () => $fetch('/api/alumbrado'));
+const { data, pending, error, refresh } = await useAsyncData('alumbrado-dataset', () => $fetch('/api/alumbrado'), { server: false });
 const mapCaptureRef = ref<HTMLElement | null>(null);
 const isExporting = ref(false);
 
@@ -833,12 +833,79 @@ async function exportExcel() {
   isDownloadingExcel.value = true;
 
   try {
-    const response = await fetch('/api/alumbrado/export-excel');
-    if (!response.ok) {
-      throw new Error('No se pudo generar el archivo Excel.');
-    }
+    const { default: ExcelJS } = await import('exceljs');
+    const workbook = new ExcelJS.Workbook();
 
-    const blob = await response.blob();
+    const recordsSheet = workbook.addWorksheet('Datos actualizados');
+    recordsSheet.columns = [
+      { header: 'recordId', key: 'recordId', width: 24 },
+      { header: 'source', key: 'source', width: 12 },
+      { header: 'PUNTO', key: 'point', width: 14 },
+      { header: 'POSICIÓN', key: 'position', width: 24 },
+      { header: 'TIPO', key: 'technology', width: 24 },
+      { header: 'POTENCIA (W)', key: 'powerW', width: 14 },
+      { header: 'TIPO DE ENCENDIDO', key: 'encendido', width: 20 },
+      { header: 'OBSERVACIONES', key: 'observations', width: 24 },
+      { header: 'CANTIDAD POR PUNTO', key: 'quantity', width: 18 },
+      { header: 'SUMINISTRO', key: 'supply', width: 16 },
+      { header: 'DIRECCIÓN', key: 'address', width: 36 },
+      { header: 'LOCALIDAD', key: 'locality', width: 22 },
+      { header: 'LAT', key: 'lat', width: 14 },
+      { header: 'LNG', key: 'lng', width: 14 },
+      { header: 'ESTADO COORDENADA', key: 'coordinateStatus', width: 18 },
+      { header: 'UPDATED AT', key: 'updatedAt', width: 24 }
+    ];
+    recordsSheet.getRow(1).font = { bold: true };
+    recordsSheet.views = [{ state: 'frozen', ySplit: 1 }];
+    recordsSheet.addRows(
+      allRecords.value.map((record) => ({
+        recordId: record.recordId,
+        source: record.source ?? '',
+        point: record.point,
+        position: record.position,
+        technology: record.technology,
+        powerW: record.powerW ?? '',
+        encendido: record.encendido,
+        observations: record.observations,
+        quantity: record.quantity,
+        supply: record.supply,
+        address: record.address,
+        locality: record.locality,
+        lat: record.lat ?? '',
+        lng: record.lng ?? '',
+        coordinateStatus: record.coordinateStatus,
+        updatedAt: record.updatedAt ?? ''
+      }))
+    );
+
+    const historySheet = workbook.addWorksheet('Historial');
+    historySheet.columns = [
+      { header: 'recordId', key: 'recordId', width: 24 },
+      { header: 'timestamp', key: 'timestamp', width: 24 },
+      { header: 'field', key: 'field', width: 18 },
+      { header: 'before', key: 'before', width: 28 },
+      { header: 'after', key: 'after', width: 28 }
+    ];
+    historySheet.getRow(1).font = { bold: true };
+    historySheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    const historyRows = allRecords.value.flatMap((record) =>
+      (record.history ?? []).flatMap((entry) =>
+        Object.entries(entry.changes).map(([field, change]) => ({
+          recordId: record.recordId,
+          timestamp: entry.timestamp,
+          field,
+          before: change.before === null || change.before === undefined ? '' : String(change.before),
+          after: change.after === null || change.after === undefined ? '' : String(change.after)
+        }))
+      )
+    );
+    historySheet.addRows(historyRows);
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -1180,19 +1247,24 @@ useHead({
                   </UButton>
                 </div>
 
-                <div class="mt-2 grid gap-1.5">
-                  <div class="rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5">
-                    <p class="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-500">Tecnología</p>
-                    <p class="mt-0.5 text-sm font-semibold text-slate-900">{{ formatEditValue(selectedPoint.technology) }}</p>
-                  </div>
-                  <div class="rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5">
-                    <p class="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-500">Potencia</p>
-                    <p class="mt-0.5 text-sm font-semibold text-slate-900">{{ formatPowerDisplay(selectedPoint.powerW) }}</p>
-                  </div>
-                  <div class="rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5">
-                    <p class="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-500">Encendido</p>
-                    <p class="mt-0.5 text-sm font-semibold text-slate-900">{{ formatEditValue(selectedPoint.encendido) }}</p>
-                  </div>
+                <div class="mt-2 grid gap-2">
+                  <select v-model="editTechnology" class="fme-select fme-select--compact">
+                    <option value="">Tecnología</option>
+                    <option v-for="item in options?.technologies ?? []" :key="item" :value="item">{{ item }}</option>
+                  </select>
+                  <select v-model="editPowerW" class="fme-select fme-select--compact">
+                    <option value="">Potencia</option>
+                    <option v-for="item in options?.powerValues ?? []" :key="item" :value="item">{{ item }} W</option>
+                  </select>
+                  <select v-model="editEncendido" class="fme-select fme-select--compact">
+                    <option value="">Encendido</option>
+                    <option v-for="item in options?.encendidos ?? []" :key="item" :value="item">{{ item }}</option>
+                  </select>
+                  <UButton size="xs" color="primary" variant="solid" class="justify-center" :loading="isSavingPoint" :disabled="isSavingPoint" @click="saveSelectedPoint">
+                    Guardar cambios
+                  </UButton>
+                  <p v-if="savePointError" class="text-[10px] text-rose-600">{{ savePointError }}</p>
+                  <p v-else-if="savePointMessage" class="text-[10px] text-emerald-700">{{ savePointMessage }}</p>
                 </div>
 
               </div>
@@ -1269,6 +1341,105 @@ useHead({
               </div>
             </div>
           </div>
+
+          <UCard class="glass" data-pdf-exclude>
+            <template #header>
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <p class="text-sm font-semibold text-slate-900">Nuevo punto</p>
+                  <p class="text-xs text-slate-500">Activá el modo alta y marcá los puntos con click en el mapa</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                    {{ draftPointCount }} marcados
+                  </span>
+                  <UButton size="xs" color="primary" variant="solid" @click="isCreateMode ? stopCreateMode() : startCreateMode()">
+                    {{ isCreateMode ? 'Cancelar alta' : 'Nuevo punto' }}
+                  </UButton>
+                </div>
+              </div>
+            </template>
+
+            <div v-if="isCreateMode" class="space-y-4 text-sm text-slate-700">
+              <div class="grid gap-3 md:grid-cols-3">
+                <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                  <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Código</p>
+                  <p class="mt-1 text-lg font-semibold text-slate-950">{{ newPointName }}</p>
+                </div>
+                <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3 md:col-span-2">
+                  <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Cómo cargar</p>
+                  <p class="mt-1 text-sm text-slate-600">Hacé click varias veces sobre el mapa para marcar puntos. Cada click agrega un registro al lote.</p>
+                </div>
+              </div>
+
+              <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                <select v-model="newPointTechnology" class="fme-select fme-select--compact">
+                  <option value="">Tecnología</option>
+                  <option v-for="item in options?.technologies ?? []" :key="item" :value="item">{{ item }}</option>
+                </select>
+                <select v-model="newPointPowerW" class="fme-select fme-select--compact">
+                  <option value="">Potencia</option>
+                  <option v-for="item in options?.powerValues ?? []" :key="item" :value="item">{{ item }} W</option>
+                </select>
+                <select v-model="newPointEncendido" class="fme-select fme-select--compact">
+                  <option value="">Encendido</option>
+                  <option v-for="item in options?.encendidos ?? []" :key="item" :value="item">{{ item }}</option>
+                </select>
+              </div>
+
+              <div class="grid gap-3 md:grid-cols-2">
+                <div class="space-y-1.5">
+                  <input
+                    v-model="newPointLocality"
+                    list="new-point-localities"
+                    class="fme-select fme-select--compact w-full"
+                    placeholder="Localidad"
+                  />
+                  <datalist id="new-point-localities">
+                    <option v-for="item in newPointLocalityOptions" :key="item" :value="item" />
+                  </datalist>
+                </div>
+                <div class="space-y-1.5">
+                  <input
+                    v-model="newPointAddress"
+                    list="new-point-addresses"
+                    class="fme-select fme-select--compact w-full"
+                    placeholder="Dirección / sector"
+                  />
+                  <datalist id="new-point-addresses">
+                    <option v-for="item in newPointAddressOptions" :key="item" :value="item" />
+                  </datalist>
+                </div>
+                <UInput v-model="newPointSupply" placeholder="Suministro" />
+                <UInput v-model="newPointQuantity" type="number" min="1" placeholder="Cantidad" />
+              </div>
+
+              <UInput v-model="newPointObservations" placeholder="Observaciones" />
+
+              <div class="flex flex-wrap items-center gap-2">
+                <UButton size="xs" color="gray" variant="solid" @click="removeLastDraftLocation">Borrar último</UButton>
+                <UButton size="xs" color="gray" variant="solid" @click="clearDraftLocations">Limpiar todo</UButton>
+                <span class="text-xs text-slate-500">{{ draftLocations.length }} ubicación{{ draftLocations.length === 1 ? '' : 'es' }} marcada{{ draftLocations.length === 1 ? '' : 's' }}</span>
+              </div>
+
+              <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div>
+                  <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Guardar lote</p>
+                  <p class="text-xs text-slate-500">Cada click en el mapa se guarda como un punto consecutivo.</p>
+                </div>
+                <UButton color="primary" :loading="isSavingNewPoint" :disabled="isSavingNewPoint" @click="saveNewPoint">
+                  Guardar punto(s)
+                </UButton>
+              </div>
+
+              <p v-if="createPointError" class="text-xs font-medium text-rose-600">{{ createPointError }}</p>
+              <p v-else-if="createPointMessage" class="text-xs font-medium text-emerald-700">{{ createPointMessage }}</p>
+            </div>
+
+            <div v-else class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-600">
+              Activá <strong>Nuevo punto</strong> para empezar a marcar ubicaciones sobre el mapa.
+            </div>
+          </UCard>
 
           <div class="grid gap-5 xl:grid-cols-2" data-pdf-exclude>
             <UCard class="glass">

@@ -1,4 +1,5 @@
 export default defineNuxtConfig({
+  ssr: false,
   compatibilityDate: '2026-04-11',
   devtools: { enabled: true },
   modules: ['@nuxt/ui'],
@@ -12,7 +13,4 @@ export default defineNuxtConfig({
       ]
     }
   },
-  nitro: {
-    preset: 'vercel'
-  }
 });
