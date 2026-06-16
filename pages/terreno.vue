@@ -428,7 +428,7 @@ useHead({
     </div>
 
     <div class="relative overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.10)]">
-      <div class="relative min-h-[72vh]">
+      <div class="relative h-[72vh] min-h-[72vh]">
         <ClientOnly>
           <LightingMap
             :points="allRecords"
