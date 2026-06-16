@@ -4,6 +4,7 @@ const route = useRoute();
 const navItems = [
   { label: 'Dashboard', to: '/dashboard' },
   { label: 'Alumbrado', to: '/alumbrado' },
+  { label: 'Terreno', to: '/terreno' },
   { label: 'Medidores', to: '/medidores' },
   { label: 'Calidad', to: '/calidad' },
   { label: 'Reportes', to: '/reportes' },
