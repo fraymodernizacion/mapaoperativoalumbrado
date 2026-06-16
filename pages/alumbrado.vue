@@ -23,6 +23,8 @@ const isMapFiltersOpen = ref(true);
 const editTechnology = ref('');
 const editPowerW = ref<string>('');
 const editEncendido = ref('');
+const editPostType = ref('');
+const editCableType = ref('');
 const isSavingPoint = ref(false);
 const savePointError = ref('');
 const savePointMessage = ref('');
@@ -30,6 +32,8 @@ const newPointName = ref('');
 const newPointTechnology = ref('');
 const newPointPowerW = ref('');
 const newPointEncendido = ref('');
+const newPointPostType = ref('');
+const newPointCableType = ref('');
 const newPointLocality = ref('');
 const newPointLocalityMode = ref('suggested');
 const newPointAddress = ref('');
@@ -305,6 +309,8 @@ function resetNewPointForm() {
   newPointTechnology.value = '';
   newPointPowerW.value = '';
   newPointEncendido.value = '';
+  newPointPostType.value = '';
+  newPointCableType.value = '';
   newPointLocality.value = newPointLocalitySuggestedOptions.value[0] ?? '';
   newPointLocalityMode.value = nearbyLocalitySuggestions.value.length ? 'suggested' : 'manual';
   newPointAddressPreset.value = nearbyAddressSuggestions.value[0]?.label ?? '__manual__';
@@ -425,12 +431,16 @@ function resetSelectedPointForm(points: LightingRecord[]) {
     editTechnology.value = '';
     editPowerW.value = '';
     editEncendido.value = '';
+    editPostType.value = '';
+    editCableType.value = '';
     return;
   }
 
   editTechnology.value = sameValueOrBlank(points, (record) => record.technology);
   editPowerW.value = sameValueOrBlank(points, (record) => record.powerW);
   editEncendido.value = sameValueOrBlank(points, (record) => record.encendido);
+  editPostType.value = sameValueOrBlank(points, (record) => record.postType);
+  editCableType.value = sameValueOrBlank(points, (record) => record.cableType);
 }
 
 watch(
@@ -467,7 +477,9 @@ async function saveSelectedPoint() {
   const technologyValue = editTechnology.value.trim();
   const encendidoValue = editEncendido.value.trim();
   const powerValue = editPowerW.value.trim();
-  const updates: { technology?: string; powerW?: number; encendido?: string } = {};
+  const postTypeValue = editPostType.value.trim();
+  const cableTypeValue = editCableType.value.trim();
+  const updates: { technology?: string; powerW?: number; encendido?: string; postType?: string; cableType?: string } = {};
 
   if (technologyValue) {
     updates.technology = technologyValue;
@@ -485,6 +497,14 @@ async function saveSelectedPoint() {
     }
 
     updates.powerW = parsedPower;
+  }
+
+  if (postTypeValue) {
+    updates.postType = postTypeValue;
+  }
+
+  if (cableTypeValue) {
+    updates.cableType = cableTypeValue;
   }
 
   if (!Object.keys(updates).length) {
@@ -544,6 +564,8 @@ async function saveNewPoint() {
   const technologyValue = newPointTechnology.value.trim();
   const encendidoValue = newPointEncendido.value.trim();
   const powerValue = newPointPowerW.value.trim();
+  const postTypeValue = newPointPostType.value.trim();
+  const cableTypeValue = newPointCableType.value.trim();
   const quantityValue = newPointQuantity.value.trim();
 
   if (!draftLocations.value.length) {
@@ -553,8 +575,8 @@ async function saveNewPoint() {
 
   const resolvedPointCode = pointValue || nextManualPointCode.value;
 
-  if (!technologyValue || !encendidoValue || !powerValue) {
-    createPointError.value = 'Completá tecnología, potencia y encendido antes de guardar.';
+  if (!technologyValue || !encendidoValue || !powerValue || !postTypeValue || !cableTypeValue) {
+    createPointError.value = 'Completá tecnología, potencia, encendido, poste y cableado antes de guardar.';
     return;
   }
 
@@ -587,6 +609,8 @@ async function saveNewPoint() {
         technology: technologyValue,
         powerW: parsedPower,
         encendido: encendidoValue,
+        postType: postTypeValue,
+        cableType: cableTypeValue,
         locality: newPointLocality.value.trim(),
         address: newPointAddress.value.trim(),
         supply: newPointSupply.value.trim(),
@@ -1316,6 +1340,17 @@ useHead({
                   </select>
                 </div>
 
+                <div class="mt-3 grid gap-2 sm:grid-cols-2">
+                  <select v-model="newPointPostType" class="fme-select fme-select--compact w-full">
+                    <option value="">Tipo de poste</option>
+                    <option v-for="item in options?.postTypes ?? []" :key="item" :value="item">{{ item }}</option>
+                  </select>
+                  <select v-model="newPointCableType" class="fme-select fme-select--compact w-full">
+                    <option value="">Tipo de cableado</option>
+                    <option v-for="item in options?.cableTypes ?? []" :key="item" :value="item">{{ item }}</option>
+                  </select>
+                </div>
+
                 <div class="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
                   <div class="space-y-1.5">
                     <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Localidad</p>
@@ -1452,6 +1487,9 @@ useHead({
                     <p class="truncate text-[10px] text-slate-500">
                       {{ selectedPoint.address || 'Sin dirección' }} · {{ selectedEditableCount }}/{{ selectedPointCount }} editables
                     </p>
+                    <p class="truncate text-[10px] text-slate-500">
+                      Poste: {{ selectedPoint.postType || 'Sin dato' }} · Cableado: {{ selectedPoint.cableType || 'Sin dato' }}
+                    </p>
                   </div>
                   <UButton variant="ghost" color="gray" size="xs" class="shrink-0 px-2" @click="clearSelection">
                     Limpiar
@@ -1470,6 +1508,14 @@ useHead({
                   <select v-model="editEncendido" class="fme-select fme-select--compact w-full">
                     <option value="">Encendido</option>
                     <option v-for="item in options?.encendidos ?? []" :key="item" :value="item">{{ item }}</option>
+                  </select>
+                  <select v-model="editPostType" class="fme-select fme-select--compact w-full">
+                    <option value="">Tipo de poste</option>
+                    <option v-for="item in options?.postTypes ?? []" :key="item" :value="item">{{ item }}</option>
+                  </select>
+                  <select v-model="editCableType" class="fme-select fme-select--compact w-full">
+                    <option value="">Tipo de cableado</option>
+                    <option v-for="item in options?.cableTypes ?? []" :key="item" :value="item">{{ item }}</option>
                   </select>
                   <UButton size="xs" color="primary" variant="solid" class="justify-center" :loading="isSavingPoint" :disabled="isSavingPoint" @click="saveSelectedPoint">
                     Guardar cambios

@@ -111,20 +111,32 @@ function api_update_lighting_records(PDO $pdo, array $recordIds, array $fields):
   $hasTechnology = array_key_exists('technology', $fields);
   $hasEncendido = array_key_exists('encendido', $fields);
   $hasPowerW = array_key_exists('powerW', $fields);
+  $hasPostType = array_key_exists('postType', $fields);
+  $hasCableType = array_key_exists('cableType', $fields);
 
   $technology = $hasTechnology ? trim((string) ($fields['technology'] ?? '')) : null;
   $encendido = $hasEncendido ? trim((string) ($fields['encendido'] ?? '')) : null;
   $powerW = $hasPowerW ? api_parse_number($fields['powerW'] ?? null) : null;
+  $postType = $hasPostType ? trim((string) ($fields['postType'] ?? '')) : null;
+  $cableType = $hasCableType ? trim((string) ($fields['cableType'] ?? '')) : null;
 
   if (
     ($hasTechnology && $technology === '') &&
     ($hasEncendido && $encendido === '') &&
-    ($hasPowerW && $powerW === null)
+    ($hasPowerW && $powerW === null) &&
+    ($hasPostType && $postType === '') &&
+    ($hasCableType && $cableType === '')
   ) {
     throw new InvalidArgumentException('Completá al menos un campo antes de guardar.');
   }
 
-  if (($hasTechnology && $technology === '') || ($hasEncendido && $encendido === '') || ($hasPowerW && $powerW === null)) {
+  if (
+    ($hasTechnology && $technology === '') ||
+    ($hasEncendido && $encendido === '') ||
+    ($hasPowerW && $powerW === null) ||
+    ($hasPostType && $postType === '') ||
+    ($hasCableType && $cableType === '')
+  ) {
     throw new InvalidArgumentException('Completá los campos que quieras actualizar antes de guardar.');
   }
 
@@ -138,7 +150,7 @@ function api_update_lighting_records(PDO $pdo, array $recordIds, array $fields):
     }
 
     $updateStatement = $pdo->prepare(
-      'UPDATE lighting_records SET technology = ?, power_w = ?, encendido = ?, updated_at = ? WHERE record_id = ?'
+      'UPDATE lighting_records SET technology = ?, power_w = ?, encendido = ?, post_type = ?, cable_type = ?, updated_at = ? WHERE record_id = ?'
     );
     $historyStatement = $pdo->prepare(
       'INSERT INTO lighting_history (record_id, timestamp, field_name, before_value, after_value) VALUES (?, ?, ?, ?, ?)'
@@ -151,6 +163,8 @@ function api_update_lighting_records(PDO $pdo, array $recordIds, array $fields):
       $currentTechnology = (string) ($row['technology'] ?? '');
       $currentPowerW = $row['power_w'] === null || $row['power_w'] === '' ? null : (string) (int) $row['power_w'];
       $currentEncendido = (string) ($row['encendido'] ?? '');
+      $currentPostType = (string) ($row['post_type'] ?? '');
+      $currentCableType = (string) ($row['cable_type'] ?? '');
 
       if ($hasTechnology && $technology !== null && $currentTechnology !== $technology) {
         $changes[] = ['field' => 'technology', 'before' => $currentTechnology, 'after' => $technology];
@@ -161,12 +175,20 @@ function api_update_lighting_records(PDO $pdo, array $recordIds, array $fields):
       if ($hasEncendido && $encendido !== null && $currentEncendido !== $encendido) {
         $changes[] = ['field' => 'encendido', 'before' => $currentEncendido, 'after' => $encendido];
       }
+      if ($hasPostType && $postType !== null && $currentPostType !== $postType) {
+        $changes[] = ['field' => 'postType', 'before' => $currentPostType, 'after' => $postType];
+      }
+      if ($hasCableType && $cableType !== null && $currentCableType !== $cableType) {
+        $changes[] = ['field' => 'cableType', 'before' => $currentCableType, 'after' => $cableType];
+      }
 
       $nextTechnology = $hasTechnology && $technology !== null ? $technology : $currentTechnology;
       $nextPowerW = $hasPowerW && $powerW !== null ? (int) $powerW : ($row['power_w'] === null || $row['power_w'] === '' ? null : (int) $row['power_w']);
       $nextEncendido = $hasEncendido && $encendido !== null ? $encendido : $currentEncendido;
+      $nextPostType = $hasPostType && $postType !== null ? $postType : $currentPostType;
+      $nextCableType = $hasCableType && $cableType !== null ? $cableType : $currentCableType;
 
-      $updateStatement->execute([$nextTechnology, $nextPowerW, $nextEncendido, $timestamp, $recordId]);
+      $updateStatement->execute([$nextTechnology, $nextPowerW, $nextEncendido, $nextPostType, $nextCableType, $timestamp, $recordId]);
 
       foreach ($changes as $change) {
         $historyStatement->execute([
@@ -212,6 +234,8 @@ function api_create_lighting_points(PDO $pdo, array $payload): array
   $technology = trim((string) ($payload['technology'] ?? ''));
   $encendido = trim((string) ($payload['encendido'] ?? ''));
   $powerW = api_parse_number($payload['powerW'] ?? null);
+  $postType = trim((string) ($payload['postType'] ?? ''));
+  $cableType = trim((string) ($payload['cableType'] ?? ''));
   $locality = trim((string) ($payload['locality'] ?? ''));
   $address = trim((string) ($payload['address'] ?? ''));
   $supply = trim((string) ($payload['supply'] ?? ''));
@@ -219,8 +243,8 @@ function api_create_lighting_points(PDO $pdo, array $payload): array
   $quantity = api_parse_quantity($payload['quantity'] ?? 1);
   $basePoint = trim((string) ($payload['point'] ?? ''));
 
-  if ($technology === '' || $encendido === '' || $powerW === null) {
-    throw new InvalidArgumentException('Completá tecnología, potencia y encendido antes de guardar.');
+  if ($technology === '' || $encendido === '' || $powerW === null || $postType === '' || $cableType === '') {
+    throw new InvalidArgumentException('Completá tecnología, potencia, encendido, poste y cableado antes de guardar.');
   }
 
   $timestamp = api_now_string();
@@ -233,9 +257,9 @@ function api_create_lighting_points(PDO $pdo, array $payload): array
 
     $insertStatement = $pdo->prepare(
       'INSERT INTO lighting_records (
-        record_id, source, point, position, technology, power_w, encendido, observations, quantity,
+        record_id, source, point, position, technology, power_w, encendido, post_type, cable_type, observations, quantity,
         supply, address, locality, lat, lng, coordinate_status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
 
     $recordIds = [];
@@ -258,6 +282,8 @@ function api_create_lighting_points(PDO $pdo, array $payload): array
         $technology,
         (int) $powerW,
         $encendido,
+        $postType,
+        $cableType,
         $observations,
         $quantity,
         $supply,

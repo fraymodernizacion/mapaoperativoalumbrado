@@ -48,7 +48,54 @@ function api_pdo(): PDO
     PDO::ATTR_EMULATE_PREPARES => false,
   ]);
 
+  api_ensure_lighting_schema($pdo);
+
   return $pdo;
+}
+
+function api_ensure_lighting_schema(PDO $pdo): void
+{
+  static $checked = false;
+  if ($checked) {
+    return;
+  }
+
+  $checked = true;
+
+  $databaseName = '';
+  $databaseStatement = $pdo->query('SELECT DATABASE()');
+  if ($databaseStatement instanceof PDOStatement) {
+    $databaseName = (string) ($databaseStatement->fetchColumn() ?? '');
+  }
+  if ($databaseName === '') {
+    return;
+  }
+
+  $tableStatement = $pdo->prepare(
+    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = 'lighting_records'"
+  );
+  $tableStatement->execute([$databaseName]);
+  if ((int) $tableStatement->fetchColumn() === 0) {
+    return;
+  }
+
+  $columns = ['post_type' => 'post_type', 'cable_type' => 'cable_type'];
+  $missingColumns = [];
+
+  $columnStatement = $pdo->prepare(
+    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = ? AND table_name = 'lighting_records' AND column_name = ?"
+  );
+
+  foreach ($columns as $columnName) {
+    $columnStatement->execute([$databaseName, $columnName]);
+    if ((int) $columnStatement->fetchColumn() === 0) {
+      $missingColumns[] = $columnName;
+    }
+  }
+
+  foreach ($missingColumns as $columnName) {
+    $pdo->exec(sprintf('ALTER TABLE lighting_records ADD COLUMN %s VARCHAR(255) NOT NULL DEFAULT \'\' AFTER encendido', $columnName));
+  }
 }
 
 function api_json(mixed $payload, int $statusCode = 200): never
@@ -191,4 +238,3 @@ function api_group_history(array $historyRows): array
 
   return array_values($grouped);
 }
-

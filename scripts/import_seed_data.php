@@ -52,9 +52,9 @@ $lightingSeed = load_json(__DIR__ . '/../database/alumbrado_seed.json');
 $lightingRows = $lightingSeed['rows'] ?? [];
 $lightingStatement = $pdo->prepare(
   'INSERT INTO lighting_records (
-    record_id, source, point, position, technology, power_w, encendido, observations, quantity,
+    record_id, source, point, position, technology, power_w, encendido, post_type, cable_type, observations, quantity,
     supply, address, locality, lat, lng, coordinate_status, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
 );
 
 foreach ($lightingRows as $index => $row) {
@@ -68,6 +68,8 @@ foreach ($lightingRows as $index => $row) {
     trim((string) ($row['TIPO'] ?? '')),
     api_parse_number($row['POTENCIA (W)'] ?? null),
     trim((string) ($row['TIPO DE ENCENDIDO'] ?? '')),
+    trim((string) ($row['TIPO DE POSTE'] ?? '')),
+    trim((string) ($row['TIPO DE CABLEADO'] ?? '')),
     trim((string) ($row['OBSERVACIONES'] ?? '')),
     api_parse_quantity($row['CANTIDAD POR PUNTO'] ?? null),
     trim((string) ($row['SUMINISTRO'] ?? '')),

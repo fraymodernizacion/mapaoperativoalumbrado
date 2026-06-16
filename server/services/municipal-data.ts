@@ -19,6 +19,37 @@ const CACHE_TTL_MS = 1000 * 60 * 10;
 let lightingCache: { value: Promise<LightingDataset>; expiresAt: number } | null = null;
 let meterCache: { value: Promise<MeterDataset>; expiresAt: number } | null = null;
 
+const LIGHTING_POST_TYPES = [
+  'Poste de madera',
+  'Poste de cemento',
+  'Columna metálica con pescante',
+  'Columna metálica telescópica de 4 mts',
+  'Columna metálica doble pescante',
+  'Artefacto de baja altura 0,60 m',
+  'Artefacto de baja altura 1,00 m',
+  'Artefacto de baja altura 1,20 m'
+];
+
+const LIGHTING_CABLE_TYPES = [
+  'Prensamblado 2x16mm',
+  'Prensamblado 3x25mm',
+  'Cable unipolar de 35mm (convencional)',
+  'Cable subterráneo 2x2,5mm',
+  'Cable subterráneo 2x4mm',
+  'Cable subterráneo 2x6mm',
+  'Cable subterráneo 4mm',
+  'Cable subterráneo 4x6mm',
+  'Cable subterráneo 4x10mm',
+  'Cable TPR 2x1,5mm',
+  'Cable TPR 2x2,5mm',
+  'Cable TPR 3x2,5mm',
+  'Cable TPR 2x4mm',
+  'Cable TPR 3x4mm',
+  'Cable TPR 2x6mm',
+  'Cable TPR 4x6mm',
+  'Cable TPR 4x10mm'
+];
+
 function getDataPath(fileName: string) {
   return path.join(process.cwd(), 'data', fileName);
 }
@@ -32,6 +63,8 @@ interface LightingRecordInput {
   technology: string;
   powerW: number | null;
   encendido: string;
+  postType: string;
+  cableType: string;
   observations: string;
   quantity: number;
   supply: string;
@@ -90,6 +123,8 @@ function buildLightingRecord(input: LightingRecordInput, history: LightingChange
     technologyGroup,
     powerW: input.powerW,
     encendido: input.encendido,
+    postType: input.postType,
+    cableType: input.cableType,
     observations: input.observations,
     quantity: input.quantity,
     supply: input.supply,
@@ -225,6 +260,8 @@ async function buildLightingDataset(): Promise<LightingDataset> {
       const baseTechnology = String(data['TIPO'] ?? '').trim();
       const basePowerW = parseNumber(data['POTENCIA (W)']);
       const baseEncendido = String(data['TIPO DE ENCENDIDO'] ?? '').trim();
+      const basePostType = String(data['TIPO DE POSTE'] ?? '').trim();
+      const baseCableType = String(data['TIPO DE CABLEADO'] ?? '').trim();
       const position = String(data['POSICIÓN'] ?? '').trim();
       const coordinate = parseCoordinate(position);
 
@@ -238,6 +275,8 @@ async function buildLightingDataset(): Promise<LightingDataset> {
           technology: baseTechnology,
           powerW: basePowerW,
           encendido: baseEncendido,
+          postType: basePostType,
+          cableType: baseCableType,
           observations: String(data['OBSERVACIONES'] ?? '').trim(),
           quantity: parseQuantity(data['CANTIDAD POR PUNTO']),
           supply: String(data['SUMINISTRO'] ?? '').trim(),
@@ -321,6 +360,8 @@ async function buildLightingDataset(): Promise<LightingDataset> {
         localities: Array.from(new Set(records.map((record) => record.locality).filter(Boolean))).sort(),
         technologies: Array.from(new Set(records.map((record) => record.technology).filter(Boolean))).sort(),
         encendidos: Array.from(new Set(records.map((record) => record.encendido).filter(Boolean))).sort(),
+        postTypes: LIGHTING_POST_TYPES,
+        cableTypes: LIGHTING_CABLE_TYPES,
         sectors: sectors.map((sector) => sector.label),
         powerValues
       },
@@ -478,7 +519,7 @@ export function filterLightingRecords(
 
   return records.filter((record) => {
     if (search) {
-      const haystack = [record.point, record.address, record.supply, record.technology, record.locality, record.sectorLabel].join(' ');
+      const haystack = [record.point, record.address, record.supply, record.technology, record.locality, record.sectorLabel, record.postType, record.cableType].join(' ');
       if (!normalizeText(haystack).includes(search)) return false;
     }
     if (locality && normalizeText(record.locality) !== locality) return false;

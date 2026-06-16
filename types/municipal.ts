@@ -18,6 +18,8 @@ export interface LightingChangeHistoryEntry {
     technology?: LightingFieldChange;
     powerW?: LightingFieldChange;
     encendido?: LightingFieldChange;
+    postType?: LightingFieldChange;
+    cableType?: LightingFieldChange;
   };
 }
 
@@ -32,6 +34,8 @@ export interface LightingRecord {
   technologyGroup: TechnologyGroup;
   powerW: number | null;
   encendido: string;
+  postType: string;
+  cableType: string;
   observations: string;
   quantity: number;
   supply: string;
@@ -93,6 +97,8 @@ export interface LightingDataset {
     localities: string[];
     technologies: string[];
     encendidos: string[];
+    postTypes: string[];
+    cableTypes: string[];
     sectors: string[];
     powerValues: string[];
   };

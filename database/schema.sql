@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS lighting_records (
   technology VARCHAR(255) NOT NULL,
   power_w INT NULL,
   encendido VARCHAR(255) NOT NULL,
+  post_type VARCHAR(255) NOT NULL DEFAULT '',
+  cable_type VARCHAR(255) NOT NULL DEFAULT '',
   observations TEXT NOT NULL DEFAULT '',
   quantity INT NOT NULL DEFAULT 1,
   supply VARCHAR(255) NOT NULL DEFAULT '',

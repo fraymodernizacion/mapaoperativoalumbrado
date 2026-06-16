@@ -4,6 +4,43 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/_bootstrap.php';
 
+function api_lighting_post_types(): array
+{
+  return [
+    'Poste de madera',
+    'Poste de cemento',
+    'Columna metálica con pescante',
+    'Columna metálica telescópica de 4 mts',
+    'Columna metálica doble pescante',
+    'Artefacto de baja altura 0,60 m',
+    'Artefacto de baja altura 1,00 m',
+    'Artefacto de baja altura 1,20 m',
+  ];
+}
+
+function api_lighting_cable_types(): array
+{
+  return [
+    'Prensamblado 2x16mm',
+    'Prensamblado 3x25mm',
+    'Cable unipolar de 35mm (convencional)',
+    'Cable subterráneo 2x2,5mm',
+    'Cable subterráneo 2x4mm',
+    'Cable subterráneo 2x6mm',
+    'Cable subterráneo 4mm',
+    'Cable subterráneo 4x6mm',
+    'Cable subterráneo 4x10mm',
+    'Cable TPR 2x1,5mm',
+    'Cable TPR 2x2,5mm',
+    'Cable TPR 3x2,5mm',
+    'Cable TPR 2x4mm',
+    'Cable TPR 3x4mm',
+    'Cable TPR 2x6mm',
+    'Cable TPR 4x6mm',
+    'Cable TPR 4x10mm',
+  ];
+}
+
 function api_build_lighting_record(array $row, array $history = []): array
 {
   $technology = (string) ($row['technology'] ?? '');
@@ -13,6 +50,8 @@ function api_build_lighting_record(array $row, array $history = []): array
   $isLuminaire = api_is_luminaire_type($technologyGroup);
   $isLed = $technologyGroup === 'led';
   $powerTotalW = $isLuminaire && $powerW !== null ? $powerW * $quantity : 0;
+  $postType = (string) ($row['post_type'] ?? '');
+  $cableType = (string) ($row['cable_type'] ?? '');
   $address = trim((string) ($row['address'] ?? ''));
   $locality = trim((string) ($row['locality'] ?? ''));
   $sectorLabel = $address !== '' ? $address : 'Sin dirección';
@@ -37,6 +76,8 @@ function api_build_lighting_record(array $row, array $history = []): array
     'technologyGroup' => $technologyGroup,
     'powerW' => $powerW,
     'encendido' => (string) ($row['encendido'] ?? ''),
+    'postType' => $postType,
+    'cableType' => $cableType,
     'observations' => (string) ($row['observations'] ?? ''),
     'quantity' => $quantity,
     'supply' => (string) ($row['supply'] ?? ''),
@@ -118,6 +159,8 @@ function api_filter_lighting_records(array $records, array $filters): array
       $record['supply'] ?? '',
       $record['address'] ?? '',
       $record['locality'] ?? '',
+      $record['postType'] ?? '',
+      $record['cableType'] ?? '',
     ]));
 
     if ($search !== '' && !str_contains($haystack, $search)) return false;
@@ -203,6 +246,8 @@ function api_build_lighting_options(array $records): array
     'localities' => array_values(array_keys($localities)),
     'technologies' => array_values(array_keys($technologies)),
     'encendidos' => array_values(array_keys($encendidos)),
+    'postTypes' => api_lighting_post_types(),
+    'cableTypes' => api_lighting_cable_types(),
     'sectors' => array_values(array_unique(array_map(static fn(array $record): string => (string) ($record['sectorLabel'] ?? ''), $records))),
     'powerValues' => array_values(array_filter(array_unique(array_map(static fn(array $record): ?string => $record['powerW'] === null ? null : (string) $record['powerW'], $records)))),
   ];
@@ -387,4 +432,3 @@ function api_fetch_dashboard_dataset(PDO $pdo): array
     'meters' => api_fetch_meter_dataset($pdo),
   ];
 }
-
