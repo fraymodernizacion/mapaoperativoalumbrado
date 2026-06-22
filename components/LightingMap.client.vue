@@ -1,5 +1,7 @@
 ﻿<script setup lang="ts">
 import type { LightingRecord } from '~/types/municipal';
+import type { LightingColorMode } from '~/utils/lighting-colors';
+import { colorForLegendValue, colorForTechnologyGroup } from '~/utils/lighting-colors';
 
 const props = defineProps<{
   points: LightingRecord[];
@@ -7,6 +9,8 @@ const props = defineProps<{
   selectedKeys?: string[];
   fitBoundsKey?: string | null;
   visualKey?: string | null;
+  colorMode?: LightingColorMode;
+  colorValues?: string[];
   mapLayer?: 'street' | 'satellite';
   draftLocations?: { lat: number; lng: number }[] | null;
   draftLocation?: { lat: number; lng: number } | null;
@@ -27,19 +31,18 @@ let satelliteLayer: import('leaflet').TileLayer | null = null;
 let activeBaseLayer: 'street' | 'satellite' = 'street';
 let leaflet: typeof import('leaflet') | null = null;
 
-function colorForGroup(group: LightingRecord['technologyGroup']) {
-  switch (group) {
-    case 'led':
-      return '#0f4c81';
-    case 'sodio':
-      return '#d9480f';
-    case 'bajo_consumo':
-      return '#e67700';
-    case 'gabinete':
-      return '#64748b';
-    default:
-      return '#0ea5e9';
+function colorForPoint(point: LightingRecord) {
+  if (props.colorMode === 'power') {
+    const value = point.powerW === null ? 'Sin potencia' : String(point.powerW);
+    return colorForLegendValue(value, props.colorValues ?? []);
   }
+
+  if (props.colorMode === 'encendido') {
+    const value = point.encendido || 'Sin encendido';
+    return colorForLegendValue(value, props.colorValues ?? []);
+  }
+
+  return colorForTechnologyGroup(point.technologyGroup);
 }
 
 function googleMapsHref(point: LightingRecord) {
@@ -76,7 +79,7 @@ function markerForPoint(point: LightingRecord) {
     radius,
     color: '#ffffff',
     weight: isSelected ? 5 : point.isLed ? 2.4 : 1.8,
-    fillColor: colorForGroup(point.technologyGroup),
+    fillColor: colorForPoint(point),
     fillOpacity: isSelected ? 1 : 0.96,
     opacity: 0.98
   });
@@ -290,6 +293,14 @@ watch(
   () => {
     renderMarkers({ fitToBounds: false });
   }
+);
+
+watch(
+  [() => props.colorMode, () => props.colorValues],
+  () => {
+    renderMarkers({ fitToBounds: false });
+  },
+  { deep: true }
 );
 
 watch(

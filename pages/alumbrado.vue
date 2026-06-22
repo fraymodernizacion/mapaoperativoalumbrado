@@ -1,5 +1,7 @@
 ﻿<script setup lang="ts">
 import type { LightingRecord } from '~/types/municipal';
+import type { LightingColorMode } from '~/utils/lighting-colors';
+import { colorForLegendValue } from '~/utils/lighting-colors';
 
 const { data, pending, error, refresh } = await useAsyncData('alumbrado-dataset', () => $fetch('/api/alumbrado/'), { server: false });
 const mapCaptureRef = ref<HTMLElement | null>(null);
@@ -14,6 +16,7 @@ const powerValue = ref('');
 const sectorSearch = ref('');
 const selectedSector = ref('');
 const mapLayer = ref<'street' | 'satellite'>('street');
+const colorMode = ref<LightingColorMode>('technology');
 const selectedPointIds = ref<string[]>([]);
 const selectedPointId = ref<string | null>(null);
 const isFloatingFormOpen = ref(true);
@@ -213,6 +216,42 @@ const reportFilters = computed(() => [
   { label: 'Potencia', value: powerValue.value ? `${powerValue.value} W` : 'Todas' },
   { label: 'Sector', value: selectedSector.value || 'Todos' }
 ]);
+const technologyLegend = [
+  { value: 'LED', color: '#0f4c81' },
+  { value: 'Vapor de sodio', color: '#d9480f' },
+  { value: 'Bajo consumo', color: '#e67700' },
+  { value: 'Gabinete / tablero', color: '#64748b' },
+  { value: 'Otros', color: '#0ea5e9' }
+];
+const powerColorValues = computed(() => {
+  const values = Array.from(
+    new Set(allRecords.value.filter((record) => record.powerW !== null).map((record) => String(record.powerW)))
+  ).sort((left, right) => Number(left) - Number(right));
+  if (allRecords.value.some((record) => record.powerW === null)) values.push('Sin potencia');
+  return values;
+});
+const encendidoColorValues = computed(() => {
+  const values = Array.from(new Set(allRecords.value.map((record) => record.encendido).filter(Boolean))).sort((left, right) =>
+    left.localeCompare(right, 'es')
+  );
+  if (allRecords.value.some((record) => !record.encendido)) values.push('Sin encendido');
+  return values;
+});
+const activeColorValues = computed(() =>
+  colorMode.value === 'power' ? powerColorValues.value : colorMode.value === 'encendido' ? encendidoColorValues.value : []
+);
+const activeColorLegend = computed(() => {
+  if (colorMode.value === 'technology') return technologyLegend;
+  return activeColorValues.value.map((value) => ({
+    value: colorMode.value === 'power' && value !== 'Sin potencia' ? `${value} W` : value,
+    color: colorForLegendValue(value, activeColorValues.value)
+  }));
+});
+const colorModeLabel = computed(() => {
+  if (colorMode.value === 'power') return 'Potencia';
+  if (colorMode.value === 'encendido') return 'Tipo de encendido';
+  return 'Tipo de tecnología';
+});
 function googleMapsUrl(record: LightingRecord) {
   if (record.lat !== null && record.lng !== null) {
     return `https://www.google.com/maps?q=${record.lat},${record.lng}`;
@@ -1031,30 +1070,21 @@ useHead({
             <template #header>
               <div class="flex items-center justify-between">
                 <p class="text-sm font-semibold text-slate-900">Referencia de color</p>
-                <span class="text-xs text-slate-500">Tecnologías</span>
+                <span class="text-xs text-slate-500">{{ colorModeLabel }}</span>
               </div>
             </template>
 
-            <div class="space-y-2 text-sm text-slate-700">
-              <div class="flex items-center gap-2">
-                <span class="h-3 w-3 rounded-full bg-[#0f4c81]" />
-                LED
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="h-3 w-3 rounded-full bg-[#d9480f]" />
-                Vapor de sodio
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="h-3 w-3 rounded-full bg-[#e67700]" />
-                Bajo consumo
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="h-3 w-3 rounded-full bg-[#64748b]" />
-                Gabinete / tablero
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="h-3 w-3 rounded-full bg-[#0ea5e9]" />
-                Otros
+            <div class="space-y-3 text-sm text-slate-700">
+              <select v-model="colorMode" class="fme-select fme-select--compact w-full" aria-label="Colorear puntos por">
+                <option value="technology">Color por tecnología</option>
+                <option value="power">Color por potencia</option>
+                <option value="encendido">Color por encendido</option>
+              </select>
+              <div class="max-h-64 space-y-2 overflow-auto pr-1">
+                <div v-for="item in activeColorLegend" :key="item.value" class="flex items-center gap-2">
+                  <span class="h-3 w-3 shrink-0 rounded-full" :style="{ backgroundColor: item.color }" />
+                  <span>{{ item.value }}</span>
+                </div>
               </div>
             </div>
           </UCard>
@@ -1104,7 +1134,7 @@ useHead({
                 <div class="flex items-start justify-between gap-2">
                   <div class="min-w-0">
                     <p class="text-[9px] font-semibold uppercase tracking-[0.28em] text-slate-500">Referencias de color</p>
-                    <h3 class="truncate text-sm font-semibold text-slate-950">Tipos de tecnología</h3>
+                    <h3 class="truncate text-sm font-semibold text-slate-950">{{ colorModeLabel }}</h3>
                     <p class="mt-0.5 text-[10px] text-slate-500">
                       Las capas usan estos colores para identificar cada punto.
                     </p>
@@ -1121,28 +1151,17 @@ useHead({
                 </div>
 
                 <div v-if="isColorLegendOpen" class="mt-3 grid gap-3">
+                  <select v-model="colorMode" class="fme-select fme-select--compact w-full" aria-label="Colorear puntos por">
+                    <option value="technology">Color por tecnología</option>
+                    <option value="power">Color por potencia</option>
+                    <option value="encendido">Color por encendido</option>
+                  </select>
                   <div>
-                    <p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Tecnologías</p>
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">{{ colorModeLabel }}</p>
                     <div class="mt-2 space-y-1.5 text-sm text-slate-700">
-                      <div class="flex items-center gap-2">
-                        <span class="h-3 w-3 rounded-full bg-[#0f4c81] ring-1 ring-slate-200" />
-                        LED
-                      </div>
-                      <div class="flex items-center gap-2">
-                        <span class="h-3 w-3 rounded-full bg-[#d9480f] ring-1 ring-slate-200" />
-                        Vapor de sodio
-                      </div>
-                      <div class="flex items-center gap-2">
-                        <span class="h-3 w-3 rounded-full bg-[#e67700] ring-1 ring-slate-200" />
-                        Bajo consumo
-                      </div>
-                      <div class="flex items-center gap-2">
-                        <span class="h-3 w-3 rounded-full bg-[#64748b] ring-1 ring-slate-200" />
-                        Gabinete / tablero
-                      </div>
-                      <div class="flex items-center gap-2">
-                        <span class="h-3 w-3 rounded-full bg-[#0ea5e9] ring-1 ring-slate-200" />
-                        Otros
+                      <div v-for="item in activeColorLegend" :key="item.value" class="flex items-center gap-2">
+                        <span class="h-3 w-3 shrink-0 rounded-full ring-1 ring-slate-200" :style="{ backgroundColor: item.color }" />
+                        <span>{{ item.value }}</span>
                       </div>
                     </div>
                   </div>
@@ -1458,6 +1477,8 @@ useHead({
                   :selected-keys="selectedPointIds"
                   :fit-bounds-key="mapFitBoundsKey"
                   :visual-key="mapVisualKey"
+                  :color-mode="colorMode"
+                  :color-values="activeColorValues"
                   :map-layer="mapLayer"
                   :draft-locations="draftLocations"
                   :draft-location="draftLocation"
