@@ -321,3 +321,50 @@ function api_create_lighting_points(PDO $pdo, array $payload): array
     'records' => $records,
   ];
 }
+
+function api_delete_lighting_points(PDO $pdo, array $recordIds): array
+{
+  $recordIds = array_values(array_unique(array_filter(
+    array_map('strval', $recordIds),
+    static fn(string $value): bool => trim($value) !== ''
+  )));
+
+  if (!$recordIds) {
+    throw new InvalidArgumentException('Seleccioná al menos un punto creado para eliminar.');
+  }
+
+  $pdo->beginTransaction();
+
+  try {
+    $rows = api_fetch_lighting_rows_by_ids($pdo, $recordIds);
+    if (count($rows) !== count($recordIds)) {
+      throw new RuntimeException('Uno o más puntos seleccionados ya no existen.');
+    }
+
+    foreach ($rows as $row) {
+      if ((string) ($row['source'] ?? '') !== 'manual') {
+        throw new InvalidArgumentException('Solo se pueden eliminar puntos creados manualmente.');
+      }
+    }
+
+    $placeholders = implode(',', array_fill(0, count($recordIds), '?'));
+    $historyStatement = $pdo->prepare("DELETE FROM lighting_history WHERE record_id IN ($placeholders)");
+    $historyStatement->execute($recordIds);
+
+    $recordsStatement = $pdo->prepare("DELETE FROM lighting_records WHERE record_id IN ($placeholders) AND source = 'manual'");
+    $recordsStatement->execute($recordIds);
+    if ($recordsStatement->rowCount() !== count($recordIds)) {
+      throw new RuntimeException('No se pudieron eliminar todos los puntos seleccionados.');
+    }
+
+    $pdo->commit();
+  } catch (Throwable $error) {
+    if ($pdo->inTransaction()) {
+      $pdo->rollBack();
+    }
+
+    throw $error;
+  }
+
+  return ['recordIds' => $recordIds];
+}

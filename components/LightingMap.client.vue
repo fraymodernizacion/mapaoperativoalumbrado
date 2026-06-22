@@ -42,23 +42,6 @@ function colorForGroup(group: LightingRecord['technologyGroup']) {
   }
 }
 
-function colorForPower(powerW: number | null) {
-  switch (powerW) {
-    case 40:
-      return '#0f4c81';
-    case 50:
-      return '#6d28d9';
-    case 100:
-      return '#0f766e';
-    case 150:
-      return '#b45309';
-    case 200:
-      return '#be123c';
-    default:
-      return null;
-  }
-}
-
 function googleMapsHref(point: LightingRecord) {
   if (point.lat !== null && point.lng !== null) {
     return `https://www.google.com/maps?q=${point.lat},${point.lng}`;
@@ -89,12 +72,11 @@ function markerForPoint(point: LightingRecord) {
   const selectedSet = new Set(props.selectedKeys ?? (props.selectedKey ? [props.selectedKey] : []));
   const isSelected = selectedSet.has(point.recordId);
   const radius = isSelected ? 19 : point.isLed ? 8 : 6.5;
-  const powerColor = colorForPower(point.powerW);
   const marker = leaflet.circleMarker([point.lat as number, point.lng as number], {
     radius,
     color: '#ffffff',
     weight: isSelected ? 5 : point.isLed ? 2.4 : 1.8,
-    fillColor: powerColor ?? colorForGroup(point.technologyGroup),
+    fillColor: colorForGroup(point.technologyGroup),
     fillOpacity: isSelected ? 1 : 0.96,
     opacity: 0.98
   });

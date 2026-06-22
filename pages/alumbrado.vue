@@ -26,6 +26,7 @@ const editEncendido = ref('');
 const editPostType = ref('');
 const editCableType = ref('');
 const isSavingPoint = ref(false);
+const isDeletingPoints = ref(false);
 const savePointError = ref('');
 const savePointMessage = ref('');
 const newPointName = ref('');
@@ -80,6 +81,7 @@ const selectedPoint = computed(() => {
   return selectedPoints.value[0] ?? null;
 });
 const selectedEditablePoints = computed(() => selectedPoints.value.filter((record) => record.isLuminaire));
+const selectedDeletablePoints = computed(() => selectedPoints.value.filter((record) => record.source === 'manual'));
 const selectedPointCount = computed(() => selectedPoints.value.length);
 const selectedEditableCount = computed(() => selectedEditablePoints.value.length);
 const nextManualPointCode = computed(() => {
@@ -211,14 +213,6 @@ const reportFilters = computed(() => [
   { label: 'Potencia', value: powerValue.value ? `${powerValue.value} W` : 'Todas' },
   { label: 'Sector', value: selectedSector.value || 'Todos' }
 ]);
-const powerLegend = [
-  { value: 40, color: '#0f4c81' },
-  { value: 50, color: '#6d28d9' },
-  { value: 100, color: '#0f766e' },
-  { value: 150, color: '#b45309' },
-  { value: 200, color: '#be123c' }
-];
-
 function googleMapsUrl(record: LightingRecord) {
   if (record.lat !== null && record.lng !== null) {
     return `https://www.google.com/maps?q=${record.lat},${record.lng}`;
@@ -554,6 +548,32 @@ async function saveSelectedPoint() {
     savePointError.value = error instanceof Error ? error.message : 'No se pudieron guardar los cambios.';
   } finally {
     isSavingPoint.value = false;
+  }
+}
+
+async function deleteSelectedPoints() {
+  const points = selectedDeletablePoints.value;
+  if (!import.meta.client || !points.length || isDeletingPoints.value) return;
+
+  const label = points.length === 1 ? `el punto ${points[0].point}` : `los ${points.length} puntos seleccionados`;
+  if (!window.confirm(`¿Eliminar definitivamente ${label}? Esta acción no se puede deshacer.`)) return;
+
+  isDeletingPoints.value = true;
+  savePointError.value = '';
+  savePointMessage.value = '';
+
+  try {
+    await $fetch('/api/alumbrado/delete/', {
+      method: 'POST',
+      body: { recordIds: points.map((point) => point.recordId) }
+    });
+
+    clearSelection();
+    await refresh();
+  } catch (error) {
+    savePointError.value = error instanceof Error ? error.message : 'No se pudieron eliminar los puntos.';
+  } finally {
+    isDeletingPoints.value = false;
   }
 }
 
@@ -1084,7 +1104,7 @@ useHead({
                 <div class="flex items-start justify-between gap-2">
                   <div class="min-w-0">
                     <p class="text-[9px] font-semibold uppercase tracking-[0.28em] text-slate-500">Referencias de color</p>
-                    <h3 class="truncate text-sm font-semibold text-slate-950">Tecnologías y potencias</h3>
+                    <h3 class="truncate text-sm font-semibold text-slate-950">Tipos de tecnología</h3>
                     <p class="mt-0.5 text-[10px] text-slate-500">
                       Las capas usan estos colores para identificar cada punto.
                     </p>
@@ -1127,21 +1147,6 @@ useHead({
                     </div>
                   </div>
 
-                  <div class="h-px bg-slate-200" />
-
-                  <div>
-                    <p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Potencias</p>
-                    <div class="mt-2 grid grid-cols-2 gap-2 text-sm text-slate-700">
-                      <div
-                        v-for="item in powerLegend"
-                        :key="item.value"
-                        class="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5"
-                      >
-                        <span class="h-3 w-3 rounded-full ring-1 ring-slate-200" :style="{ backgroundColor: item.color }" />
-                        <span>{{ item.value }} W</span>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
 
@@ -1519,6 +1524,18 @@ useHead({
                   </select>
                   <UButton size="xs" color="primary" variant="solid" class="justify-center" :loading="isSavingPoint" :disabled="isSavingPoint" @click="saveSelectedPoint">
                     Guardar cambios
+                  </UButton>
+                  <UButton
+                    v-if="selectedDeletablePoints.length"
+                    size="xs"
+                    color="red"
+                    variant="outline"
+                    class="justify-center"
+                    :loading="isDeletingPoints"
+                    :disabled="isDeletingPoints || isSavingPoint"
+                    @click="deleteSelectedPoints"
+                  >
+                    {{ selectedDeletablePoints.length === 1 ? 'Eliminar punto creado' : `Eliminar ${selectedDeletablePoints.length} puntos creados` }}
                   </UButton>
                   <p v-if="savePointError" class="text-[10px] text-rose-600">{{ savePointError }}</p>
                   <p v-else-if="savePointMessage" class="text-[10px] text-emerald-700">{{ savePointMessage }}</p>

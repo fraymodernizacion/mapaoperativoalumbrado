@@ -65,6 +65,7 @@ Los endpoints PHP viven en `public/api/` y exponen:
 - lectura de alumbrado
 - lectura de medidores
 - alta de puntos nuevos
+- eliminación de puntos creados manualmente
 - edición de luminarias
 - edición masiva
 
